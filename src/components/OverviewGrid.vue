@@ -66,7 +66,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown, true))
 </script>
 
 <template>
-  <div class="overview">
+  <div class="overview" @contextmenu.prevent>
     <div class="overview-header">
       <h2 class="overview-title">{{ title }}</h2>
       <button v-if="showBack" class="overview-close" title="Close" @click="emit('back')">
@@ -116,6 +116,9 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown, true))
   flex-direction: column;
   background: #0f172a;
   overflow-y: auto;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
 /* Sticky, not part of the scrolling flow — the grid scrolls under it. */
