@@ -232,7 +232,7 @@ async function loadTabContent(tab: TabState) {
   const decoder = new TextDecoder('utf-8', { fatal: false })
 
   try {
-    await streamFileCat(session, tab.entry.path, (chunk) => {
+    await streamFileCat(session, props.realm, tab.entry.path, (chunk) => {
       tab.loadedBytes += chunk.length
       tab.content += decoder.decode(chunk, { stream: true })
     }, controller.signal)

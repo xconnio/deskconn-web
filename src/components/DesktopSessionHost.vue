@@ -9,6 +9,7 @@ import { useMachinesStore } from '@/stores/machines'
 import { useSettingsStore } from '@/stores/settings'
 import { useAuthStore } from '@/stores/auth'
 import { useSessionCacheStore } from '@/stores/sessionCache'
+import { encryptedCall } from '@/utils/encryptedCall'
 import { useDesktopSessionsStore } from '@/stores/desktopSessions'
 import { useMachinesOverviewStore } from '@/stores/machinesOverview'
 import { useWindowsOverviewStore } from '@/stores/windowsOverview'
@@ -240,17 +241,17 @@ async function fetchWallpaper() {
     session = await authStore.shellWamp(props.realm)
     if (!session) return
 
-    // Cheap md5 check — only download the full image when it has changed
-    const checksumResult = await session.call('io.xconn.deskconn.deskconnd.wallpaper.checksum')
-    const remoteChecksum = checksumResult.args?.[0] as string
+    // Cheap checksum check — only download the full image when it has changed
+    const remoteChecksum = await encryptedCall<string>(
+      session, props.realm, 'io.xconn.deskconn.deskconnd.wallpaper.checksum')
     if (cached?.checksum === remoteChecksum) return
 
-    const result = await session.call('io.xconn.deskconn.deskconnd.wallpaper.get')
-    const mimeType = result.args?.[0] as string
-    const data = result.args?.[1] as Uint8Array
-    if (!data?.length) return
+    const wallpaper = await encryptedCall<{ mime: string; data: string }>(
+      session, props.realm, 'io.xconn.deskconn.deskconnd.wallpaper.get')
+    if (!wallpaper.data) return
+    const data = Uint8Array.from(atob(wallpaper.data), (c) => c.charCodeAt(0))
 
-    const newUrl = await storeWallpaper(props.realm, data, mimeType, remoteChecksum)
+    const newUrl = await storeWallpaper(props.realm, data, wallpaper.mime, remoteChecksum)
     applyWallpaperUrl(newUrl)
   } catch {
     // silently ignore — wallpaper is optional

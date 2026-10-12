@@ -6,6 +6,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links'
 import '@xterm/xterm/css/xterm.css'
 import { Session } from 'xconn'
 import { useSessionCacheStore } from '@/stores/sessionCache'
+import { encryptedCall } from '@/utils/encryptedCall'
 import { floatingWindowToolbarKey } from '@/composables/floatingWindowToolbar'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import TabStrip from '@/components/TabStrip.vue'
@@ -264,8 +265,8 @@ function closeTab(id: number) {
 async function isTabBusy(tab: TabState): Promise<boolean> {
   if (!tab.session || !tab.shellId) return false
   try {
-    const result = await tab.session.call('io.xconn.deskconn.deskconnd.shell.isbusy', [tab.shellId])
-    return Boolean(result.args?.[0])
+    return await encryptedCall<boolean>(
+      tab.session, props.realm, 'io.xconn.deskconn.deskconnd.shell.isbusy', tab.shellId)
   } catch (err) {
     // Fails open (no warning) rather than blocking the close — but log it,
     // since a stale deskconnd without this RPC fails silently the same way.
