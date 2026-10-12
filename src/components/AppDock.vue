@@ -391,9 +391,6 @@ onUnmounted(() => {
           >
             <i class="bi bi-grid-3x3-gap-fill"></i>
           </button>
-          <span v-if="windows.length > 0" class="dock-dots">
-            <span v-for="n in Math.min(windows.length, 4)" :key="n" class="dock-dot"></span>
-          </span>
         </div>
 
         <div class="dock-divider"></div>
