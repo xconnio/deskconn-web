@@ -61,15 +61,21 @@ function onKeydown(e: KeyboardEvent) {
   if (handleNavKey(e)) e.stopPropagation()
 }
 
+// Clicks on the background (anything but a card) close the overview, same as
+// the header's x — only when there's somewhere to go back to.
+function onBackgroundClick(e: MouseEvent) {
+  if (props.showBack && !(e.target as Element).closest('.overview-card')) emit('back')
+}
+
 onMounted(() => window.addEventListener('keydown', onKeydown, true))
 onUnmounted(() => window.removeEventListener('keydown', onKeydown, true))
 </script>
 
 <template>
-  <div class="overview" @contextmenu.prevent>
+  <div class="overview" @contextmenu.prevent @click="onBackgroundClick">
     <div class="overview-header">
       <h2 class="overview-title">{{ title }}</h2>
-      <button v-if="showBack" class="overview-close" title="Close" @click="emit('back')">
+      <button v-if="showBack" class="overview-close" title="Close" @click.stop="emit('back')">
         <i class="bi bi-x-lg"></i>
       </button>
     </div>
