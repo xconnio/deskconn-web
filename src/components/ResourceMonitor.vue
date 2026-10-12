@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useSessionCacheStore } from '../stores/sessionCache'
 import { useSettingsStore } from '../stores/settings'
 import { formatDesktopError, isDesktopOfflineError } from '../utils/desktopError'
+import { encryptedCall } from '../utils/encryptedCall'
 
 const props = defineProps<{
   realm: string
@@ -110,9 +111,7 @@ async function fetchInfo() {
       error.value = 'No session available'
       return
     }
-    const result = await session.call('io.xconn.deskconn.deskconnd.device.info')
-    const bytes = result.args?.[0] as Uint8Array
-    info.value = JSON.parse(new TextDecoder().decode(bytes)) as DeviceInfo
+    info.value = await encryptedCall<DeviceInfo>(session, props.realm, 'io.xconn.deskconn.deskconnd.machine.info')
     error.value = null
 
     pushHistory(cpuHistory.value, cpuOverall.value)
@@ -135,9 +134,8 @@ async function fetchProcesses() {
   try {
     const session = await sessionCacheStore.acquire(props.realm)
     if (!session) return
-    const result = await session.call('io.xconn.deskconn.deskconnd.process.list')
-    const bytes = result.args?.[0] as Uint8Array
-    processList.value = JSON.parse(new TextDecoder().decode(bytes)) as ProcessInfo[]
+    processList.value = await encryptedCall<ProcessInfo[]>(
+      session, props.realm, 'io.xconn.deskconn.deskconnd.process.list')
   } catch (e) {
     if (isDesktopOfflineError(e)) sessionCacheStore.reportUnreachable(props.realm)
     actionError.value = formatDesktopError(e)
@@ -152,9 +150,8 @@ async function ensureIcon(iconName: string) {
   try {
     const session = await sessionCacheStore.acquire(props.realm)
     if (!session) return
-    const result = await session.call('io.xconn.deskconn.deskconnd.app.icon', [iconName])
-    const bytes = result.args?.[0] as Uint8Array
-    const parsed = JSON.parse(new TextDecoder().decode(bytes)) as { mime: string; data: string }
+    const parsed = await encryptedCall<{ mime: string; data: string }>(
+      session, props.realm, 'io.xconn.deskconn.deskconnd.app.icon', iconName)
     iconCache.value.set(iconName, `data:${parsed.mime};base64,${parsed.data}`)
   } catch {
     iconFailed.add(iconName)
@@ -165,9 +162,7 @@ async function fetchApps() {
   try {
     const session = await sessionCacheStore.acquire(props.realm)
     if (!session) return
-    const result = await session.call('io.xconn.deskconn.deskconnd.app.list')
-    const bytes = result.args?.[0] as Uint8Array
-    appList.value = JSON.parse(new TextDecoder().decode(bytes)) as AppInfo[]
+    appList.value = await encryptedCall<AppInfo[]>(session, props.realm, 'io.xconn.deskconn.deskconnd.app.list')
     for (const app of appList.value) {
       if (app.icon_name) void ensureIcon(app.icon_name)
     }
@@ -182,7 +177,7 @@ async function signalPids(pids: number[], signal: 'term' | 'kill') {
   try {
     const session = await sessionCacheStore.acquire(props.realm)
     if (!session) return
-    await session.call('io.xconn.deskconn.deskconnd.process.signal', [pids, signal])
+    await encryptedCall(session, props.realm, 'io.xconn.deskconn.deskconnd.process.signal', { pids, signal })
     actionError.value = null
   } catch (e) {
     if (isDesktopOfflineError(e)) sessionCacheStore.reportUnreachable(props.realm)

@@ -34,6 +34,13 @@ export function isDataChannelClosedError(error: unknown): boolean {
   return message.includes('rtcdatachannel') && message.includes("readystate is not 'open'")
 }
 
+// The desktop doesn't have the keys a call was encrypted with, e.g. after
+// another key exchange on the same session replaced them.
+export function isKeysRejectedError(error: unknown): boolean {
+  const text = errorText(error).toLowerCase()
+  return text.includes('no session keys found') || text.includes('failed to decrypt')
+}
+
 // errEditConflict — file changed on disk since it was read.
 export function isEditConflictError(error: unknown): boolean {
   return errorText(error).toLowerCase().includes('could not be applied cleanly')
