@@ -22,7 +22,9 @@ function errorText(error: unknown): string {
 }
 
 export function isNoSuchProcedureException(error: unknown): boolean {
-  return errorUri(error).includes('wamp.error.no_such_procedure')
+  // deskconnd's bridge wraps a missing procedure as operation_failed with the original
+  // error as its text.
+  return [errorUri(error), errorText(error)].some((s) => s.toLowerCase().includes('wamp.error.no_such_procedure'))
 }
 
 // send() on a RTCDataChannel throws "RTCDataChannel.readyState is not 'open'"

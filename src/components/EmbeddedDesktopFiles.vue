@@ -58,11 +58,32 @@ const emit = defineEmits<{
 
 type Place = 'files' | 'documents' | 'pictures' | 'videos'
 
-const places: { id: Place; label: string; icon: string }[] = [
+const allPlaces: { id: Place; label: string; icon: string }[] = [
   { id: 'documents', label: 'Documents', icon: 'bi-file-earmark-text' },
   { id: 'pictures', label: 'Pictures', icon: 'bi-image' },
   { id: 'videos', label: 'Videos', icon: 'bi-film' },
 ]
+
+// Documents, Pictures and Videos are served by media-app: deskconnd lists them in
+// capabilities.list while it's running. Older backends, without that list, index files
+// themselves, so every place stays.
+const procedureCapabilitiesList = 'io.xconn.deskconn.deskconnd.capabilities.list'
+const listedApps = ref<string[] | null>(null)
+const places = computed(() =>
+  listedApps.value === null ? allPlaces : allPlaces.filter((p) => listedApps.value?.includes(p.id)),
+)
+
+async function fetchListedApps() {
+  listedApps.value = null
+  if (!session.value) return
+  try {
+    const result = await session.value.call(procedureCapabilitiesList)
+    const apps = (result.args?.[0] ?? []) as { id: string; enabled: boolean }[]
+    listedApps.value = apps.filter((a) => a.enabled).map((a) => a.id)
+  } catch {
+    // Older backend: keep every place.
+  }
+}
 
 const activePlace = ref<Place>('files')
 
@@ -572,6 +593,7 @@ async function initializeExplorer() {
   await connectDesktopSession()
 
   if (!session.value) return
+  void fetchListedApps()
 
   try {
     await performKeyExchange()

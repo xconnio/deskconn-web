@@ -11,7 +11,12 @@ import {
   decryptPayload,
   type EncryptionKeys,
 } from '@/utils/encryption'
-import { DESKTOP_OFFLINE_MESSAGE, formatDesktopError, isDesktopOfflineError } from '@/utils/desktopError'
+import {
+  DESKTOP_OFFLINE_MESSAGE,
+  formatDesktopError,
+  isDesktopOfflineError,
+  isNoSuchProcedureException,
+} from '@/utils/desktopError'
 
 const procedureIndexQuery  = 'io.xconn.deskconn.deskconnd.index.query'
 
@@ -229,7 +234,8 @@ function filterToCategories(list: IndexEntry[], categories: string[]): IndexEntr
 
 function reportError(err: unknown, fallback: string) {
   if (isDesktopOfflineError(err)) sessionCacheStore.reportUnreachable(props.realm)
-  error.value = formatDesktopError(err, fallback)
+  // The index query is only registered while media-app is running.
+  error.value = isNoSuchProcedureException(err) ? 'media-app is offline.' : formatDesktopError(err, fallback)
 }
 
 async function loadMore() {

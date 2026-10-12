@@ -823,7 +823,9 @@ export async function openWebTransportStream(
   signal?.addEventListener('abort', onAbort, { once: true })
   try {
     const writer = raw.writable.getWriter()
-    const reader = new FrameReader(raw.readable.getReader())
+    const rawReader = raw.readable.getReader()
+    streamLocks.set(raw, { writer, reader: rawReader })
+    const reader = new FrameReader(rawReader)
     await writeJSON(writer, { realm, op, path })
     const keys = await webTransportKeyExchange(writer, reader)
     return { writer, reader, raw, keys }
@@ -832,9 +834,20 @@ export async function openWebTransportStream(
   }
 }
 
+// The writer and reader openWebTransportStream locked a stream's halves with: once
+// locked, only they can abort/cancel them, raw.writable/raw.readable can't.
+const streamLocks = new WeakMap<WebTransportBidirectionalStream, {
+  writer: WritableStreamDefaultWriter<Uint8Array>
+  reader: ReadableStreamDefaultReader<Uint8Array>
+}>()
+
+// Resets both halves, so the device stops sending: data left unread on an open stream
+// holds the connection's flow-control window until no stream on it moves.
 export function abortWebTransportStream(raw: WebTransportBidirectionalStream): void {
-  try { raw.writable.abort() } catch { /* ignore */ }
-  try { raw.readable.cancel() } catch { /* ignore */ }
+  const locks = streamLocks.get(raw)
+  // These reject rather than throw, e.g. on a stream that already ended.
+  void (locks ? locks.writer.abort() : raw.writable.abort()).catch(() => {})
+  void (locks ? locks.reader.cancel() : raw.readable.cancel()).catch(() => {})
 }
 
 // One-shot request/response on its own stream — mirrors quicRequest in
