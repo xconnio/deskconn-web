@@ -59,7 +59,9 @@ export function formatDesktopError(error: unknown, fallback = DESKTOP_OFFLINE_ME
   if (isDesktopOfflineError(error)) {
     return DESKTOP_OFFLINE_MESSAGE
   }
-  const text = errorText(error)
+  // Each hop to the machine wraps its error, e.g. "wamp.error.operation_failed:
+  // wamp.error.invalid_argument: text-editor requires files" — keep just the message.
+  const text = errorText(error).replace(/^(wamp\.error\.[\w.]+: )+/, '')
   if (!text) console.error('formatDesktopError: falling back to default message for unrecognized error:', error)
   return text || fallback
 }

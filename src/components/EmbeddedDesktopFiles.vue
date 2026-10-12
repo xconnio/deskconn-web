@@ -5,6 +5,7 @@ import { ApplicationError, type Session } from 'xconn'
 import { useSessionCacheStore } from '@/stores/sessionCache'
 import { useSessionEncryptionStore } from '@/stores/sessionEncryption'
 import { useSettingsStore } from '@/stores/settings'
+import { useCapabilitiesStore } from '@/stores/capabilities'
 import { useEntryNavigation } from '@/composables/useEntryNavigation'
 import EmbeddedIndexedFiles from '@/components/EmbeddedIndexedFiles.vue'
 import { floatingWindowActionsKey, floatingWindowMobileKey, floatingWindowToolbarKey } from '@/composables/floatingWindowToolbar'
@@ -64,28 +65,17 @@ const allPlaces: { id: Place; label: string; icon: string }[] = [
   { id: 'videos', label: 'Videos', icon: 'bi-film' },
 ]
 
-// Documents, Pictures and Videos are served by media-app: deskconnd lists them in
-// capabilities.list while it's running. Older backends, without that list, index files
-// themselves, so every place stays.
-const procedureCapabilitiesList = 'io.xconn.deskconn.deskconnd.capabilities.list'
-const listedApps = ref<string[] | null>(null)
-const places = computed(() =>
-  listedApps.value === null ? allPlaces : allPlaces.filter((p) => listedApps.value?.includes(p.id)),
-)
-
-async function fetchListedApps() {
-  listedApps.value = null
-  if (!session.value) return
-  try {
-    const result = await session.value.call(procedureCapabilitiesList)
-    const apps = (result.args?.[0] ?? []) as { id: string; enabled: boolean }[]
-    listedApps.value = apps.filter((a) => a.enabled).map((a) => a.id)
-  } catch {
-    // Older backend: keep every place.
-  }
-}
+// Documents, Pictures and Videos are served by media-app: only offered while the machine
+// lists them as enabled (see the Settings app).
+const capabilitiesStore = useCapabilitiesStore()
+const places = computed(() => allPlaces.filter((p) => capabilitiesStore.isListed(props.realm, p.id)))
 
 const activePlace = ref<Place>('files')
+
+// Back to Home if the place being viewed gets turned off.
+watch(places, (list) => {
+  if (activePlace.value !== 'files' && !list.some((p) => p.id === activePlace.value)) activePlace.value = 'files'
+})
 
 // The indexed view's "View in Files" context menu item routes back here with
 // the file's full path — open its containing folder and highlight it.
@@ -593,7 +583,7 @@ async function initializeExplorer() {
   await connectDesktopSession()
 
   if (!session.value) return
-  void fetchListedApps()
+  void capabilitiesStore.fetch(props.realm)
 
   try {
     await performKeyExchange()
@@ -1318,8 +1308,8 @@ onUnmounted(() => {
             class="breadcrumb-search-area breadcrumb-search-area--static fwin-no-drag"
             :class="{ 'breadcrumb-search-area--embedded': !!toolbarTarget }"
           >
-            <i class="bi me-1" :class="places.find((p) => p.id === activePlace)?.icon"></i>
-            {{ places.find((p) => p.id === activePlace)?.label }}
+            <i class="bi me-1" :class="allPlaces.find((p) => p.id === activePlace)?.icon"></i>
+            {{ allPlaces.find((p) => p.id === activePlace)?.label }}
           </div>
           <div
             v-else
