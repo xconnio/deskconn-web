@@ -1,5 +1,5 @@
 import { ClientConfig } from 'xconn-webrtc-js'
-import { CBORSerializer, CryptoSignAuthenticator } from 'xconn'
+import { CBORSerializer, type ClientAuthenticator } from 'xconn'
 
 import { wampService, type WampSession } from './wamp'
 import { REGISTRATION_AUTHID, REGISTRATION_PRIVATE_KEY, WAMP_REALM } from '../config'
@@ -247,7 +247,7 @@ export const authService = {
 
   // Signals over the already-connected routed session, so P2P setup needs no
   // second router connection.
-  async shellWebRTCDesktop(authID: string, privateKey: string, realm: string, session: WampSession) {
+  async shellWebRTCDesktop(authenticator: ClientAuthenticator, realm: string, session: WampSession) {
     const procedureWebRTCOffer = 'io.xconn.webrtc.offer'
     const topicAnswererOnCandidate = 'io.xconn.webrtc.answerer.on_candidate'
     const topicOffererOnCandidate = 'io.xconn.webrtc.offerer.on_candidate'
@@ -260,7 +260,7 @@ export const authService = {
       topicAnswererOnCandidate,
       topicOffererOnCandidate,
       new CBORSerializer(),
-      new CryptoSignAuthenticator(authID, privateKey, {}),
+      authenticator,
       session,
       iceServers,
     )

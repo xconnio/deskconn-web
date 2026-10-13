@@ -12,15 +12,24 @@ const authStore = useAuthStore()
 const router = useRouter()
 const route = useRoute()
 
-const sections: { id: AccountSection; label: string; icon: string }[] = [
+const allSections: { id: AccountSection; label: string; icon: string }[] = [
   { id: 'account', label: 'Account', icon: 'bi-person-circle' },
   { id: 'general', label: 'General Settings', icon: 'bi-gear' },
   { id: 'access', label: 'Access Management', icon: 'bi-shield-lock' },
 ]
 
-const activeSectionLabel = computed(
-  () => sections.find((s) => s.id === accountPanelStore.activeSection)?.label,
+// Account and access management live in the cloud; a standalone login has neither.
+const sections = computed(() =>
+  authStore.standalone ? allSections.filter((s) => s.id === 'general') : allSections,
 )
+
+const activeSection = computed(() =>
+  sections.value.some((s) => s.id === accountPanelStore.activeSection)
+    ? accountPanelStore.activeSection
+    : 'general',
+)
+
+const activeSectionLabel = computed(() => sections.value.find((s) => s.id === activeSection.value)?.label)
 
 // Access Management embeds real navigation (into a specific machine/org) —
 // once that changes the underlying route, the popup would otherwise just
@@ -62,7 +71,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           v-for="section in sections"
           :key="section.id"
           class="account-nav-item"
-          :class="{ active: accountPanelStore.activeSection === section.id }"
+          :class="{ active: activeSection === section.id }"
           @click="accountPanelStore.activeSection = section.id"
         >
           <i class="bi" :class="section.icon"></i> {{ section.label }}
@@ -84,8 +93,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
         </div>
 
         <div class="account-content-body">
-          <AccountInfoPanel v-if="accountPanelStore.activeSection === 'account'" />
-          <SettingsView v-else-if="accountPanelStore.activeSection === 'general'" />
+          <AccountInfoPanel v-if="activeSection === 'account'" />
+          <SettingsView v-else-if="activeSection === 'general'" />
           <AccessManagementView v-else />
         </div>
       </div>

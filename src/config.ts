@@ -13,3 +13,6 @@ export const REGISTRATION_AUTHID =
 // not part of the runtime __APP_CONFIG__ path used for the vars above.
 export const REGISTRATION_PRIVATE_KEY =
   import.meta.env.VITE_REGISTRATION_PRIVATE_KEY ?? CONFIG_DEFAULTS.REGISTRATION_PRIVATE_KEY
+
+// Realm deskconnd serves in standalone mode (deskconnd --standalone), see deskconn's common.StandaloneRealm.
+export const STANDALONE_REALM = 'io.xconn.deskconn.standalone'
