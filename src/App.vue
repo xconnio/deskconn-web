@@ -3,6 +3,7 @@ import { onMounted, onUnmounted, computed, watch, defineAsyncComponent } from 'v
 import { RouterView, useRoute, useRouter } from 'vue-router'
 
 import { machinesOverviewReturnRealm } from './router/index'
+import { STANDALONE_REALM } from './config'
 import { useAuthStore } from './stores/auth'
 import { useMachinesStore } from './stores/machines'
 import { useDesktopSessionsStore } from './stores/desktopSessions'
@@ -58,8 +59,12 @@ watch(activeRealm, (realm) => {
 })
 
 watch(
-  () => authStore.session,
-  (session) => {
+  () => [authStore.session, authStore.standalone] as const,
+  ([session, standalone]) => {
+    if (standalone) {
+      machinesStore.setStandaloneMachine(new URL(standalone.url).host, STANDALONE_REALM)
+      return
+    }
     if (session) {
       machinesStore.fetchMachines(session)
       return

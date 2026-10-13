@@ -31,6 +31,13 @@ export const useMachinesStore = defineStore('machines', () => {
     }
   }
 
+  // Standalone mode has no machine list to fetch, just the one machine logged in to.
+  function setStandaloneMachine(name: string, realm: string) {
+    desktops.value = [{ id: 'standalone', name, realm, icon: '🖥️', role: 'owner' }]
+    isLoadingDesktops.value = false
+    hasLoadedDesktops.value = true
+  }
+
   function clearMachines() {
     desktops.value = []
     isLoadingDesktops.value = false
@@ -42,6 +49,7 @@ export const useMachinesStore = defineStore('machines', () => {
     isLoadingDesktops,
     hasLoadedDesktops,
     fetchMachines,
+    setStandaloneMachine,
     clearMachines,
   }
 })

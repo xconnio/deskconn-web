@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { Modal } from 'bootstrap'
 import { useAuthStore } from '../stores/auth'
 import { errorMessage } from '../utils/errorMessage'
+import { STANDALONE_REALM } from '../config'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -18,6 +19,43 @@ const form = ref({
 
 const error = ref('')
 const showPassword = ref(false)
+
+// Standalone: log in directly to one machine running `deskconnd --standalone`.
+const standaloneMode = ref(false)
+const standaloneForm = ref({
+  url: '',
+  authId: '',
+  method: 'password' as 'password' | 'key',
+  secret: '',
+})
+const connecting = ref(false)
+const STANDALONE_KEY_AUTHID = 'deskconn-web-app'
+
+function toggleMode() {
+  standaloneMode.value = !standaloneMode.value
+  error.value = ''
+}
+
+const handleStandaloneLogin = async () => {
+  const f = standaloneForm.value
+  error.value = ''
+  connecting.value = true
+  try {
+    await authStore.loginStandalone({
+      url: f.url.trim(),
+      // deskconnd accepts any authid with a --public-key, so key logins don't ask for one.
+      ...(f.method === 'key'
+        ? { authId: STANDALONE_KEY_AUTHID, privateKey: f.secret.trim() }
+        : { authId: f.authId.trim(), password: f.secret }),
+    })
+    router.replace({ name: 'desktop-launcher', params: { realm: STANDALONE_REALM } })
+  } catch (e: unknown) {
+    console.error(e)
+    error.value = 'Connection failed: ' + errorMessage(e)
+  } finally {
+    connecting.value = false
+  }
+}
 
 const validateEmail = (email: string) => {
   return String(email)
@@ -75,15 +113,81 @@ const handleSuccessConfirm = () => {
       <div class="card shadow-lg border-0 fade-in-up">
         <div class="card-body p-4 p-md-5">
           <div class="text-center mb-5">
-            <h3 class="card-title fw-bold">Welcome Back</h3>
-            <p class="text-muted text-sm">Login to your account</p>
+            <h3 class="card-title fw-bold">{{ standaloneMode ? 'Standalone Machine' : 'Welcome Back' }}</h3>
+            <p class="text-muted text-sm">
+              {{ standaloneMode ? 'Connect directly to a machine, no account needed' : 'Login to your account' }}
+            </p>
           </div>
 
           <div v-if="error" class="alert alert-danger d-flex align-items-center" role="alert">
             <span>{{ error }}</span>
           </div>
 
-          <form @submit.prevent="handleLogin">
+          <form v-if="standaloneMode" @submit.prevent="handleStandaloneLogin">
+            <div class="mb-3">
+              <label for="sa-url" class="form-label">Machine URL</label>
+              <input
+                type="text"
+                class="form-control form-control-lg"
+                id="sa-url"
+                v-model="standaloneForm.url"
+                required
+                placeholder="https://desk.example.com:18081"
+              />
+            </div>
+            <div class="btn-group w-100 mb-3" role="group" aria-label="Authentication method">
+              <input type="radio" class="btn-check" id="sa-method-password" value="password" v-model="standaloneForm.method" />
+              <label class="btn btn-outline-secondary btn-sm" for="sa-method-password">Password</label>
+              <input type="radio" class="btn-check" id="sa-method-key" value="key" v-model="standaloneForm.method" />
+              <label class="btn btn-outline-secondary btn-sm" for="sa-method-key">Private key</label>
+            </div>
+            <div v-if="standaloneForm.method === 'password'" class="mb-3">
+              <label for="sa-authid" class="form-label">Username</label>
+              <input
+                type="text"
+                class="form-control form-control-lg"
+                id="sa-authid"
+                v-model="standaloneForm.authId"
+                required
+                autocomplete="username"
+              />
+            </div>
+            <div class="mb-3">
+              <label for="sa-secret" class="form-label">
+                {{ standaloneForm.method === 'key' ? 'Private key' : 'Password' }}
+              </label>
+              <div class="input-group-theme">
+                <input
+                  :type="showPassword ? 'text' : 'password'"
+                  class="form-control form-control-lg pe-5"
+                  id="sa-secret"
+                  v-model="standaloneForm.secret"
+                  required
+                  :placeholder="standaloneForm.method === 'key' ? 'hex private key' : '••••••••'"
+                  :autocomplete="standaloneForm.method === 'key' ? 'off' : 'current-password'"
+                />
+                <button
+                  type="button"
+                  class="btn btn-password-toggle"
+                  @click="showPassword = !showPassword"
+                  tabindex="-1"
+                >
+                  <i class="bi" :class="showPassword ? 'bi-eye-slash' : 'bi-eye'"></i>
+                </button>
+              </div>
+            </div>
+
+            <div class="d-grid gap-2 mt-4">
+              <button type="submit" class="btn btn-primary btn-lg" :disabled="connecting">
+                {{ connecting ? 'Connecting…' : 'Connect' }}
+              </button>
+            </div>
+            <div class="text-center mt-4">
+              <a href="#" class="fw-bold" @click.prevent="toggleMode">Log in with an account instead</a>
+            </div>
+          </form>
+
+          <form v-else @submit.prevent="handleLogin">
             <div class="mb-4">
               <label for="email" class="form-label">Email</label>
               <input
@@ -132,6 +236,9 @@ const handleSuccessConfirm = () => {
             <div class="text-center mt-4">
               <span class="text-muted">Don't have an account? </span>
               <router-link to="/register" class="fw-bold">Sign up</router-link>
+            </div>
+            <div class="text-center mt-2">
+              <a href="#" class="small fw-bold" @click.prevent="toggleMode">Connect to a standalone machine</a>
             </div>
 
           </form>

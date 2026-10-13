@@ -3,6 +3,8 @@ import {
   connectWebTransportCryptosign,
   type WebTransportCertHash,
   type Session,
+  WAMPCRAAuthenticator,
+  CryptoSignAuthenticator,
 } from 'xconn'
 import { connectWAMP, ClientConfig, type WebRTCSession } from 'xconn-webrtc-js'
 
@@ -55,6 +57,29 @@ async function loadCertHashes(): Promise<WebTransportCertHash[]> {
   return [{ algorithm: 'sha-256', value: hashBytes }]
 }
 
+// Static credentials for a machine running `deskconnd --standalone`: a password (wampcra)
+// or a hex ed25519 private key (cryptosign), whichever the machine was started with.
+export interface StandaloneCreds {
+  url: string // https://host:port[/path], WebTransport
+  authId: string
+  password?: string
+  privateKey?: string
+}
+
+export function standaloneAuthenticator(creds: StandaloneCreds) {
+  return creds.privateKey
+    ? new CryptoSignAuthenticator(creds.authId, creds.privateKey, {})
+    : new WAMPCRAAuthenticator(creds.authId, creds.password ?? '', {})
+}
+
+// Same defaults as deskconn's ParseStandaloneURL: https scheme, path /wamp.
+export function normalizeStandaloneURL(raw: string): string {
+  const u = new URL(/^[a-z]+:\/\//i.test(raw) ? raw : `https://${raw}`)
+  if (u.protocol !== 'https:') throw new Error('Standalone URL must be https://host:port (WebTransport)')
+  if (u.pathname === '' || u.pathname === '/') u.pathname = '/wamp'
+  return u.toString()
+}
+
 // Define a type for the session to improve type safety if xconn exports one,
 // otherwise use any/unknown but document it. Using 'any' for now as xconn types are not fully exposed in this context.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -67,6 +92,17 @@ export const wampService = {
 
   async connectWithCryptosign(authId: string, privateKey: string, realm: string): Promise<WampSession> {
     return connectWebTransportCryptosign(WAMP_WT_URL, realm, authId, privateKey, await fetchCertHashes())
+  },
+
+  async connectStandalone(creds: StandaloneCreds, realm: string): Promise<WampSession> {
+    if (typeof WebTransport === 'undefined') {
+      throw new Error('This browser does not support WebTransport, which is required to connect.')
+    }
+    // No certificate pinning: browsers only pin certificates valid for at most 14 days, so the
+    // machine needs one from a CA the browser trusts (deskconnd --tls-cert/--tls-key).
+    return creds.privateKey
+      ? connectWebTransportCryptosign(creds.url, realm, creds.authId, creds.privateKey)
+      : connectWebTransportCRA(creds.url, realm, creds.authId, creds.password ?? '')
   },
 
   async shellWithWebRTC(config: ClientConfig): Promise<[Session, WebRTCSession]> {

@@ -1,11 +1,22 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
-import { type WampSession } from '../services/wamp'
+import { CryptoSignAuthenticator } from 'xconn'
+import {
+  wampService,
+  normalizeStandaloneURL,
+  standaloneAuthenticator,
+  type StandaloneCreds,
+  type WampSession,
+} from '../services/wamp'
+import { STANDALONE_REALM } from '../config'
 import { authService } from '../services/authService'
 import { SecureStorage } from '../services/storageService'
 import { generateDeviceID, generateKeys } from '../utils/crypto'
 import { type User } from '../types'
 import { useSessionCacheStore } from './sessionCache'
+import { useSettingsStore } from './settings'
+
+const STANDALONE_CREDS_KEY = 'standalone_credentials'
 
 export const useAuthStore = defineStore('auth', () => {
   // State
@@ -15,6 +26,8 @@ export const useAuthStore = defineStore('auth', () => {
   const pendingUsername = ref<string | null>(localStorage.getItem('pending_verification_user'))
   const pendingLoginUsername = ref<string | null>(null)
   const pendingLoginPassword = ref<string | null>(null)
+  // Set while logged in to a standalone machine (no cloud account, no `session`).
+  const standalone = ref<StandaloneCreds | null>(null)
 
   // Getters
   const isAuthenticated = computed(() => !!user.value)
@@ -277,7 +290,21 @@ export const useAuthStore = defineStore('auth', () => {
     return getStoredCreds('principal_credentials')
   }
 
+  // Logs straight in to one machine running `deskconnd --standalone`. Connecting once
+  // checks the credentials; the desktop opens its own sessions via shellWamp.
+  async function loginStandalone(input: StandaloneCreds) {
+    const creds = { ...input, url: normalizeStandaloneURL(input.url) }
+    const s = await wampService.connectStandalone(creds, STANDALONE_REALM)
+    await s.leave().catch(console.error)
+
+    await SecureStorage.setItem(STANDALONE_CREDS_KEY, JSON.stringify(creds))
+    standalone.value = creds
+    setUser({ id: 'standalone', name: creds.authId })
+  }
+
   async function shellWamp(realm: string) {
+    if (standalone.value) return wampService.connectStandalone(standalone.value, realm)
+
     const creds = await getDeviceCreds()
     if (!creds) return false
 
@@ -285,10 +312,15 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function shellWebRTC(realm: string, routed: WampSession) {
+    if (standalone.value) {
+      return authService.shellWebRTCDesktop(standaloneAuthenticator(standalone.value), realm, routed)
+    }
+
     const creds = await getDeviceCreds()
     if (!creds) return false
 
-    return await authService.shellWebRTCDesktop(creds.authId, creds.privateKey, realm, routed)
+    const authenticator = new CryptoSignAuthenticator(creds.authId, creds.privateKey, {})
+    return await authService.shellWebRTCDesktop(authenticator, realm, routed)
   }
 
   // Drops a principal key that's no longer good (expired/deleted/rejected)
@@ -330,6 +362,14 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function autoLogin() {
+    // Standalone: nothing to check up front, an unreachable machine shows as disconnected.
+    const standaloneCreds = await SecureStorage.getItem(STANDALONE_CREDS_KEY)
+    if (standaloneCreds) {
+      standalone.value = JSON.parse(standaloneCreds)
+      setUser({ id: 'standalone', name: standalone.value!.authId })
+      return true
+    }
+
     const creds = await getPrincipalCreds()
     if (!creds) {
       // No principal creds — either a fresh browser, or a session left over
@@ -375,6 +415,16 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function logout() {
+    if (standalone.value) {
+      await SecureStorage.removeItem(STANDALONE_CREDS_KEY)
+      standalone.value = null
+      useSessionCacheStore().invalidateAll()
+      // A cloud login afterwards must not get bounced into the standalone realm.
+      useSettingsStore().clearLastRealm()
+      setUser(null)
+      return
+    }
+
     const s = session.value
     const lastUserId = localStorage.getItem('last_active_user')
 
@@ -413,7 +463,9 @@ export const useAuthStore = defineStore('auth', () => {
     pendingUsername,
     pendingLoginUsername,
     session,
+    standalone,
     login,
+    loginStandalone,
     verifyLoginOtp,
     register,
     verifyAccount,
