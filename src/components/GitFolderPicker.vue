@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, shallowRef } from 'vue'
+import { computed, nextTick, onMounted, ref, shallowRef } from 'vue'
 import type { Session } from 'xconn'
 import type { FileEntry } from '@/types'
 import type { EncryptionKeys } from '@/utils/encryption'
@@ -98,6 +98,23 @@ function goUp() {
   if (canGoUp.value && parentPath.value) void load(parentPath.value)
 }
 
+// Double-clicking the breadcrumbs swaps them for a text field, to type or paste a path:
+// absolute, or under ~ (the browse procedure takes paths relative to home).
+const editingPath = ref<string | null>(null)
+const pathInput = ref<HTMLInputElement | null>(null)
+
+async function editPath() {
+  editingPath.value = currentPath.value
+  await nextTick()
+  pathInput.value?.select()
+}
+
+function submitPath() {
+  const path = editingPath.value?.trim()
+  editingPath.value = null
+  if (path) void load(path === '~' ? '' : path.replace(/^~\//, ''))
+}
+
 function goToBreadcrumb(path: string) {
   if (path !== currentPath.value) void load(path)
 }
@@ -161,7 +178,17 @@ onMounted(() => load(props.initialPath ?? ''))
         <button class="picker-up" :disabled="!canGoUp || loading" @click="goUp">
           <i class="bi bi-arrow-up"></i>
         </button>
-        <div class="picker-breadcrumbs">
+        <input
+          v-if="editingPath !== null"
+          ref="pathInput"
+          v-model="editingPath"
+          class="picker-path-input"
+          spellcheck="false"
+          @keydown.enter.prevent="submitPath"
+          @keydown.esc.stop.prevent="editingPath = null"
+          @blur="editingPath = null"
+        />
+        <div v-else class="picker-breadcrumbs" title="Double-click to type a path" @dblclick="editPath">
           <template v-for="(segment, index) in breadcrumbs" :key="segment.path">
             <button
               class="picker-breadcrumb"
@@ -284,6 +311,16 @@ onMounted(() => load(props.initialPath ?? ''))
   scrollbar-width: none;
 }
 .picker-breadcrumbs::-webkit-scrollbar { display: none; }
+
+.picker-path-input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid #94a3b8;
+  border-radius: 6px;
+  padding: 0.2rem 0.45rem;
+  font-size: 0.82rem;
+  outline: none;
+}
 
 .picker-breadcrumb {
   display: inline-flex;

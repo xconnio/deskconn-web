@@ -10,10 +10,11 @@ import { encryptedCall } from '@/utils/encryptedCall'
 import { floatingWindowToolbarKey } from '@/composables/floatingWindowToolbar'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import TabStrip from '@/components/TabStrip.vue'
-import { openShell, type ShellHandle } from '@/services/shellStream'
+import { openShell, type ShellExec, type ShellHandle } from '@/services/shellStream'
 import { isDataChannelClosedError, formatDesktopError } from '@/utils/desktopError'
 
-const props = defineProps<{ realm: string; desktopName: string; embedded?: boolean; focused?: boolean }>()
+// exec runs in the first tab only; later tabs are plain shells.
+const props = defineProps<{ realm: string; desktopName: string; embedded?: boolean; focused?: boolean; exec?: ShellExec }>()
 const emit = defineEmits<{ close: [] }>()
 
 const sessionCacheStore = useSessionCacheStore()
@@ -152,6 +153,8 @@ async function startShell(tab: TabState) {
       tab.session, props.realm, tab.term.cols, tab.term.rows,
       (bytes) => { if (!tab.closed) tab.term?.write(bytes) },
       () => { if (!tab.closed) closeTab(tab.id) },
+      undefined,
+      tab.id === 0 ? props.exec : undefined,
     )
     if (tab.closed) { conn.close(); return }
     tab.conn = conn

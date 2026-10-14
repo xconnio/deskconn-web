@@ -29,7 +29,14 @@ const SHELL_CHANNEL_LABEL = 'shell'
 const shellMsgControl = 0
 const shellMsgData = 1
 
-interface ShellControlMsg {
+/** Runs command (instead of an interactive bash) in dir (instead of home). */
+export interface ShellExec {
+  command: string
+  args?: string[]
+  dir?: string
+}
+
+interface ShellControlMsg extends Partial<ShellExec> {
   op?: 'size'
   cols?: number
   rows?: number
@@ -52,9 +59,10 @@ export async function openShell(
   onData: (bytes: Uint8Array) => void,
   onClose: () => void,
   signal?: AbortSignal,
+  exec?: ShellExec,
 ): Promise<ShellHandle> {
-  if (getWebRTCSession(session)) return openP2PShell(session, cols, rows, onData, onClose, signal)
-  if (typeof session?.openStream === 'function') return openWebTransportShell(session, realm, cols, rows, onData, onClose, signal)
+  if (getWebRTCSession(session)) return openP2PShell(session, cols, rows, onData, onClose, signal, exec)
+  if (typeof session?.openStream === 'function') return openWebTransportShell(session, realm, cols, rows, onData, onClose, signal, exec)
   throw new NoDirectConnectionError()
 }
 
@@ -69,6 +77,7 @@ function openP2PShell(
   onData: (bytes: Uint8Array) => void,
   onClose: () => void,
   signal?: AbortSignal,
+  exec?: ShellExec,
 ): Promise<ShellHandle> {
   return new Promise<ShellHandle>((resolveOuter, rejectOuter) => {
     void (async () => {
@@ -115,7 +124,7 @@ function openP2PShell(
       channel.onclose = () => finish()
       channel.onerror = () => finish()
 
-      channel.send(encodeControl({ op: 'size', cols, rows }, keys.encryptKey))
+      channel.send(encodeControl({ op: 'size', cols, rows, ...exec }, keys.encryptKey))
     })().catch(rejectOuter)
   })
 }
@@ -141,13 +150,14 @@ async function openWebTransportShell(
   onData: (bytes: Uint8Array) => void,
   onClose: () => void,
   signal?: AbortSignal,
+  exec?: ShellExec,
 ): Promise<ShellHandle> {
   const { writer, reader, raw, keys } = await openWebTransportStream(session, realm, 'shell', '', signal)
   const onAbort = () => abortWebTransportStream(raw)
   signal?.addEventListener('abort', onAbort, { once: true })
 
   try {
-    await writeFrame(writer, encodeControl({ op: 'size', cols, rows }, keys.encryptKey))
+    await writeFrame(writer, encodeControl({ op: 'size', cols, rows, ...exec }, keys.encryptKey))
     const ack = await readShellAck(reader, keys.decryptKey)
 
     void (async () => {
