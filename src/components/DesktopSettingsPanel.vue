@@ -79,8 +79,8 @@ onMounted(() => {
     <div class="desktop-settings-inner">
       <h4 class="desktop-settings-title">Appearance</h4>
 
-      <div class="desktop-settings-card">
-        <div class="desktop-settings-row">
+      <div class="desktop-settings-grid">
+        <div class="desktop-settings-card desktop-settings-row">
           <p class="mb-0 fw-semibold">Task bar position</p>
           <select
             class="form-select form-select-sm desktop-settings-select"
@@ -93,9 +93,7 @@ onMounted(() => {
           </select>
         </div>
 
-        <hr class="desktop-settings-divider" />
-
-        <div class="desktop-settings-row">
+        <div class="desktop-settings-card desktop-settings-row">
           <p class="mb-0 fw-semibold">Resource Monitor refresh interval</p>
           <select
             class="form-select form-select-sm desktop-settings-select"
@@ -122,29 +120,26 @@ onMounted(() => {
           }}
         </p>
 
-        <div class="desktop-settings-card">
-          <template v-for="(app, i) in capabilities" :key="app.id">
-            <hr v-if="i > 0" class="desktop-settings-divider" />
-            <div class="desktop-settings-row">
-              <div>
-                <p class="mb-0 fw-semibold">{{ app.name }}</p>
-                <p v-if="!app.enabled && missingRequirement(app)" class="desktop-settings-hint">
-                  Requires {{ missingRequirement(app) }}. Turn on {{ missingRequirement(app) }} first.
-                </p>
-              </div>
-              <div class="form-check form-switch mb-0">
-                <input
-                  class="form-check-input desktop-settings-switch"
-                  type="checkbox"
-                  role="switch"
-                  :aria-label="`${app.name} enabled`"
-                  :checked="app.enabled"
-                  :disabled="!canManageApps || pendingId !== null || (!app.enabled && !!missingRequirement(app))"
-                  @change="onToggle(app, ($event.target as HTMLInputElement).checked, $event)"
-                />
-              </div>
+        <div class="desktop-settings-grid">
+          <div v-for="app in capabilities" :key="app.id" class="desktop-settings-card desktop-settings-row">
+            <div>
+              <p class="mb-0 fw-semibold">{{ app.name }}</p>
+              <p v-if="!app.enabled && missingRequirement(app)" class="desktop-settings-hint">
+                Requires {{ missingRequirement(app) }}. Turn on {{ missingRequirement(app) }} first.
+              </p>
             </div>
-          </template>
+            <div class="form-check form-switch mb-0">
+              <input
+                class="form-check-input desktop-settings-switch"
+                type="checkbox"
+                role="switch"
+                :aria-label="`${app.name} enabled`"
+                :checked="app.enabled"
+                :disabled="!canManageApps || pendingId !== null || (!app.enabled && !!missingRequirement(app))"
+                @change="onToggle(app, ($event.target as HTMLInputElement).checked, $event)"
+              />
+            </div>
+          </div>
         </div>
 
         <div v-if="appsError" class="alert alert-danger mt-3 mb-0 py-2 small">{{ appsError }}</div>
@@ -174,7 +169,13 @@ onMounted(() => {
 
 .desktop-settings-inner {
   width: 100%;
-  max-width: 420px;
+  max-width: 960px;
+}
+
+.desktop-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 0.75rem;
 }
 
 .desktop-settings-title {
@@ -223,11 +224,6 @@ onMounted(() => {
   width: 2.5em;
   height: 1.3em;
   cursor: pointer;
-}
-
-.desktop-settings-divider {
-  margin: 0;
-  border-color: #e8ecf0;
 }
 
 .desktop-settings-select {
