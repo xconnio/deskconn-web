@@ -2,13 +2,18 @@
 import { ref, computed, inject, onMounted, onUnmounted } from 'vue'
 import { ApplicationError } from 'xconn'
 import { useSessionCacheStore } from '@/stores/sessionCache'
+import { useCapabilitiesStore } from '@/stores/capabilities'
+import { encryptedCall } from '@/utils/encryptedCall'
 import { floatingWindowActionsKey, floatingWindowMenuKey } from '@/composables/floatingWindowToolbar'
 import { downloadUrl } from '@/utils/download'
 import { formatDesktopError, isDesktopOfflineError } from '@/utils/desktopError'
 
 const props = defineProps<{ realm: string; focused?: boolean }>()
 
+const procedureScreenshot = 'io.xconn.deskconn.deskconnd.screenshot'
+
 const sessionCacheStore = useSessionCacheStore()
+const capabilitiesStore = useCapabilitiesStore()
 
 // Absent when there's no FloatingWindow ancestor — the action buttons then
 // render inline instead of teleporting into the window's titlebar/menu.
@@ -93,9 +98,18 @@ async function capture() {
   try {
     const session = await sessionCacheStore.acquire(props.realm)
     if (!session) throw new Error('not connected')
-    const result = await session.call('io.xconn.deskconn.deskconnd.screenshot')
-    const payload = screenshotPayloadToUrl(result.args[0])
-    setImageUrl(payload.url, payload.objectUrl)
+    // remotecontrol-app serves screenshots end-to-end encrypted with its own key
+    // exchange. Older machines, without one listed, serve them unencrypted.
+    const keyExchange = capabilitiesStore.keyExchange(props.realm, 'screenshot')
+    if (keyExchange) {
+      const shot = await encryptedCall<{ mime: string; data: string }>(
+        session, props.realm, procedureScreenshot, undefined, keyExchange)
+      setImageUrl(`data:${shot.mime};base64,${shot.data}`, false)
+    } else {
+      const result = await session.call(procedureScreenshot)
+      const payload = screenshotPayloadToUrl(result.args[0])
+      setImageUrl(payload.url, payload.objectUrl)
+    }
   } catch (e) {
     const detail = e instanceof ApplicationError ? (e.args?.[0] ?? '') : ''
     if (String(detail).includes('screenshot not enabled')) {

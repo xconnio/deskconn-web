@@ -14,6 +14,8 @@ export interface Capability {
   enabled: boolean
   /** Apps this one can't work without: turning one off turns this off too. */
   requires: string[]
+  /** The procedure to exchange keys with before calling the app's procedures. */
+  key_exchange?: string
 }
 
 export const useCapabilitiesStore = defineStore('capabilities', () => {
@@ -60,5 +62,11 @@ export const useCapabilitiesStore = defineStore('capabilities', () => {
     return !list || (list.find((c) => c.id === id)?.enabled ?? false)
   }
 
-  return { byRealm, fetch, set, isEnabled, isListed }
+  /** The app's key exchange; undefined on older machines, which serve every app with
+   * deskconnd's own. */
+  function keyExchange(realm: string, id: string): string | undefined {
+    return byRealm.value[realm]?.find((c) => c.id === id)?.key_exchange
+  }
+
+  return { byRealm, fetch, set, isEnabled, isListed, keyExchange }
 })

@@ -4,6 +4,7 @@ import { type Session } from 'xconn'
 
 import { useSessionCacheStore } from '@/stores/sessionCache'
 import { useSessionEncryptionStore } from '@/stores/sessionEncryption'
+import { useCapabilitiesStore } from '@/stores/capabilities'
 import { useSettingsStore } from '@/stores/settings'
 import { useEntryNavigation } from '@/composables/useEntryNavigation'
 import {
@@ -57,6 +58,7 @@ const emit = defineEmits<{
 
 const sessionCacheStore = useSessionCacheStore()
 const sessionEncryptionStore = useSessionEncryptionStore()
+const capabilitiesStore = useCapabilitiesStore()
 const settingsStore = useSettingsStore()
 
 const isConnecting  = ref(true)
@@ -319,9 +321,10 @@ async function load() {
 
   try {
     // Shared across every window on this realm's session (see
-    // sessionEncryption.ts) — the backend keeps only one key per session, so
-    // Files/Pictures/an Image Viewer save all have to reuse the same one.
-    const keys = await sessionEncryptionStore.getOrExchange(sess, props.realm)
+    // sessionEncryption.ts) — media-app keeps only one key per session, so
+    // Pictures, Videos and Documents all have to reuse the same one.
+    const keys = await sessionEncryptionStore.getOrExchange(
+      sess, props.realm, capabilitiesStore.keyExchange(props.realm, props.category))
 
     const backendCat = viewConfig.value.backendCategory
     const categories = backendCat !== null ? [backendCat] : ['pdfs', 'texts', 'documents']

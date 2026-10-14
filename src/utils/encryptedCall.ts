@@ -3,19 +3,20 @@ import { useSessionEncryptionStore } from '@/stores/sessionEncryption'
 import { encryptPayload, decryptPayload } from '@/utils/encryption'
 import { isKeysRejectedError } from '@/utils/desktopError'
 
-// Calls one of deskconnd's end-to-end encrypted procedures. Its argument, if
-// any, and its result are each a single JSON value encrypted with the realm's
-// key-exchange keys.
+// Calls one of deskconnd's end-to-end encrypted procedures, or another app's
+// with that app's keyExchange (see capabilities.ts). Its argument, if any, and
+// its result are each a single JSON value encrypted with the key-exchange keys.
 export async function encryptedCall<T>(
   session: Session,
   realm: string,
   procedure: string,
   arg?: unknown,
+  keyExchange?: string,
 ): Promise<T> {
   const encryptionStore = useSessionEncryptionStore()
 
   for (let attempt = 0; ; attempt++) {
-    const keys = await encryptionStore.getOrExchange(session, realm)
+    const keys = await encryptionStore.getOrExchange(session, realm, keyExchange)
     const args = arg === undefined
       ? []
       : [encryptPayload(new TextEncoder().encode(JSON.stringify(arg)), keys.encryptKey)]
