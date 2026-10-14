@@ -13,6 +13,7 @@ import { encryptedCall } from '@/utils/encryptedCall'
 import { useDesktopSessionsStore } from '@/stores/desktopSessions'
 import { useMachinesOverviewStore } from '@/stores/machinesOverview'
 import { useWindowsOverviewStore } from '@/stores/windowsOverview'
+import { useCapabilitiesStore } from '@/stores/capabilities'
 import EmbeddedDesktopFiles from '@/components/EmbeddedDesktopFiles.vue'
 import TerminalPanel from '@/components/TerminalPanel.vue'
 import ResourceMonitor from '@/components/ResourceMonitor.vue'
@@ -36,6 +37,7 @@ const sessionCacheStore = useSessionCacheStore()
 const desktopSessionsStore = useDesktopSessionsStore()
 const machinesOverviewStore = useMachinesOverviewStore()
 const windowsOverviewStore = useWindowsOverviewStore()
+const capabilitiesStore = useCapabilitiesStore()
 
 const desktopName = computed(() => machinesStore.desktops.find((d) => d.realm === props.realm)?.name ?? props.realm)
 
@@ -303,6 +305,8 @@ async function connectSession(): Promise<boolean> {
       isDesktop.value = true
     }
 
+    await capabilitiesStore.fetch(props.realm)
+
     session.onDisconnect(async () => {
       markDisconnected()
     })
@@ -442,7 +446,8 @@ const videoPlayerApp: AppDef = {
 }
 
 const dockApps = computed(() => {
-  const list = [...apps]
+  // Apps the machine's owner/admin turned off (see the Settings app) aren't offered.
+  const list = apps.filter((a) => capabilitiesStore.isEnabled(props.realm, a.id))
   if (windows.value.some((w) => w.appId === 'image-viewer')) list.push(imageViewerApp)
   if (windows.value.some((w) => w.appId === 'video-player')) list.push(videoPlayerApp)
   return list
