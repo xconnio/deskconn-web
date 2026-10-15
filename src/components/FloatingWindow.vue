@@ -675,6 +675,10 @@ function startResize(e: PointerEvent, dir: string) {
   color: #fff;
 }
 
+.fwin-titlebar--dark .fwin-title {
+  color: #f1f5f9;
+}
+
 .floating-window:not(.is-focused) .fwin-title {
   color: #94a3b8;
 }

@@ -17,6 +17,7 @@ import { useCapabilitiesStore } from '@/stores/capabilities'
 import EmbeddedDesktopFiles from '@/components/EmbeddedDesktopFiles.vue'
 import TerminalPanel from '@/components/TerminalPanel.vue'
 import ResourceMonitor from '@/components/ResourceMonitor.vue'
+import ClaudePanel from '@/components/ClaudePanel.vue'
 import DesktopSettingsPanel from '@/components/DesktopSettingsPanel.vue'
 import FilePreviewModal from '@/components/FilePreviewModal.vue'
 import TextEditor from '@/components/TextEditor.vue'
@@ -26,6 +27,7 @@ import AppDock from '@/components/AppDock.vue'
 import DownloadToast from '@/components/DownloadToast.vue'
 import { loadCachedWallpaper, storeWallpaper } from '@/composables/useWallpaperCache'
 import { getFilePreviewType, type FilePreviewType } from '@/utils/fileTypes'
+import type { ShellExec } from '@/services/shellStream'
 import { downloadFile, type DownloadProgressState } from '@/utils/fileDownload'
 
 const props = defineProps<{ realm: string; active: boolean }>()
@@ -423,6 +425,15 @@ const apps: AppDef[] = [
     height: 420,
     minWidth: 420,
   },
+  {
+    id: 'claude',
+    label: 'Claude',
+    icon: 'bi-claude',
+    iconColor: '#ffffff',
+    iconBg: '#d97757',
+    width: 820,
+    height: 560,
+  },
 ]
 
 // Not pinned in the dock's launcher strip — these only show up (via dockApps
@@ -477,6 +488,7 @@ const appComponents: Record<string, Component> = {
   'image-viewer': FilePreviewModal,
   'video-player': FilePreviewModal,
   'text-editor': TextEditor,
+  claude: ClaudePanel,
 }
 
 function windowProps(win: { id: string; appId: string; props: Record<string, unknown> }) {
@@ -494,6 +506,12 @@ function windowProps(win: { id: string; appId: string; props: Record<string, unk
         realm: props.realm,
         desktopName: desktopName.value,
         embedded: true,
+        exec: win.props.exec as ShellExec | undefined,
+        focused,
+      }
+    case 'claude':
+      return {
+        realm: props.realm,
         focused,
       }
     case 'resource-monitor':
@@ -591,6 +609,28 @@ function onOpenTextEditor(session: Session, entry: FileEntry) {
     props: entry.is_dir
       ? { session: markRaw(session), initialFolder: entry.path }
       : { session: markRaw(session), entry: { path: entry.path, name: entry.name, size: entry.size } },
+  }, maximizedContainerSize())
+}
+
+// Opens a terminal running `claude --resume`, or a new `claude` without a sessionId, in dir. A login shell, so
+// claude is found on the user's PATH (deskconnd's own may lack ~/.local/bin).
+function onResumeClaude(dir: string, sessionId?: string) {
+  const terminalApp = apps.find((a) => a.id === 'terminal')!
+  openWindow({
+    appId: terminalApp.id,
+    title: 'Claude',
+    icon: terminalApp.icon,
+    iconColor: terminalApp.iconColor,
+    iconBg: terminalApp.iconBg,
+    width: 760,
+    height: 520,
+    props: {
+      exec: {
+        command: 'bash',
+        args: sessionId ? ['-lc', 'exec claude --resume "$1"', 'claude', sessionId] : ['-lc', 'exec claude'],
+        dir,
+      },
+    },
   }, maximizedContainerSize())
 }
 
@@ -745,7 +785,7 @@ onUnmounted(() => {
           :focused="focusedId === win.id"
           :mobile="isMobile"
           :use-toolbar-titlebar="win.appId === 'files' || win.appId === 'terminal' || win.appId === 'text-editor'"
-          :dark-titlebar="win.appId === 'terminal' || win.appId === 'text-editor'"
+          :dark-titlebar="win.appId === 'terminal' || win.appId === 'text-editor' || win.appId === 'claude'"
           :inset-left="insetLeft"
           :inset-right="insetRight"
           :inset-bottom="insetBottom"
@@ -768,6 +808,7 @@ onUnmounted(() => {
                 @open-files="onOpenFiles"
                 @preview-file="onPreviewFile"
                 @open-text-editor="onOpenTextEditor"
+                @resume-claude="onResumeClaude"
                 @update-title="updateTitle(win.id, $event)"
               />
             </div>
