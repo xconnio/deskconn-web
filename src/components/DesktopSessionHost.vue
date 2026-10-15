@@ -457,8 +457,11 @@ const videoPlayerApp: AppDef = {
 }
 
 const dockApps = computed(() => {
-  // Apps the machine's owner/admin turned off (see the Settings app) aren't offered.
-  const list = apps.filter((a) => capabilitiesStore.isEnabled(props.realm, a.id))
+  // Apps the machine's owner/admin turned off (see the Settings app) aren't offered, nor
+  // Claude on a machine without Claude Code, which doesn't list it.
+  const list = apps.filter((a) => a.id === 'claude'
+    ? capabilitiesStore.isListed(props.realm, a.id)
+    : capabilitiesStore.isEnabled(props.realm, a.id))
   if (windows.value.some((w) => w.appId === 'image-viewer')) list.push(imageViewerApp)
   if (windows.value.some((w) => w.appId === 'video-player')) list.push(videoPlayerApp)
   return list

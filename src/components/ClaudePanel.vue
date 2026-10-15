@@ -15,19 +15,18 @@ const emit = defineEmits<{ 'resume-claude': [dir: string, sessionId?: string] }>
 const sessionCacheStore = useSessionCacheStore()
 const sessionEncryptionStore = useSessionEncryptionStore()
 
+// deskconnd's claude.project.list and claude.session.list, shared with `desk agent`.
 interface Project {
-  id: string
   path: string
   sessions: number
   updated_at: string
 }
 
 interface Session {
-  id: string
+  session_id: string
   title: string
-  path: string
   updated_at: string
-  messages: { role: 'user' | 'assistant'; text: string }[]
+  messages?: { role: 'user' | 'assistant'; text: string }[]
 }
 
 const projects = ref<Project[]>([])
@@ -35,6 +34,11 @@ const selected = ref<Project | null>(null)
 const sessions = ref<Session[]>([])
 const loading = ref(true)
 const loadingSessions = ref(false)
+const loadingMore = ref(false)
+// Sessions are listed a page at a time: each one listed reads the end of its file.
+const PAGE_SIZE = 20
+const loaded = ref(0)
+const hasMore = ref(false)
 const error = ref<string | null>(null)
 
 async function call<T>(procedure: string, arg?: unknown): Promise<T> {
@@ -53,7 +57,7 @@ async function loadProjects() {
   error.value = null
   try {
     projects.value = await call<Project[]>('io.xconn.deskconn.deskconnd.claude.project.list')
-    const current = projects.value.find((p) => p.id === selected.value?.id) ?? projects.value[0]
+    const current = projects.value.find((p) => p.path === selected.value?.path) ?? projects.value[0]
     if (current) await selectProject(current)
   } catch (e) {
     error.value = formatDesktopError(e)
@@ -62,17 +66,31 @@ async function loadProjects() {
   }
 }
 
-async function selectProject(project: Project) {
+function selectProject(project: Project) {
   selected.value = project
-  loadingSessions.value = true
+  sessions.value = []
+  loaded.value = 0
+  return loadSessions(project, loadingSessions)
+}
+
+async function loadSessions(project: Project, loadingFlag = loadingMore) {
+  loadingFlag.value = true
   error.value = null
   try {
-    const result = await call<Session[]>('io.xconn.deskconn.deskconnd.claude.session.list', project.id)
-    if (selected.value === project) sessions.value = result
+    const page = (await call<Session[] | null>('io.xconn.deskconn.deskconnd.claude.session.list', {
+      path: project.path, offset: loaded.value, limit: PAGE_SIZE,
+    })) ?? []
+    if (selected.value !== project) return
+    loaded.value += page.length
+    hasMore.value = page.length === PAGE_SIZE
+    // Sessions without any chat yet (only settings records) have nothing to resume. One in use
+    // moves to the front while paging, so it can come again: it's shown once.
+    const shown = new Set(sessions.value.map((s) => s.session_id))
+    sessions.value.push(...page.filter((s) => s.messages?.length && !shown.has(s.session_id)))
   } catch (e) {
     error.value = formatDesktopError(e)
   } finally {
-    loadingSessions.value = false
+    loadingFlag.value = false
   }
 }
 
@@ -130,9 +148,9 @@ onMounted(loadProjects)
         </div>
         <button
           v-for="p in projects"
-          :key="p.id"
+          :key="p.path"
           class="cp-project"
-          :class="{ 'cp-project--active': selected?.id === p.id }"
+          :class="{ 'cp-project--active': selected?.path === p.path }"
           :title="p.path"
           @click="selectProject(p)"
         >
@@ -152,13 +170,13 @@ onMounted(loadProjects)
         <div v-if="error" class="cp-error"><i class="bi bi-exclamation-triangle"></i> {{ error }}</div>
         <div v-if="loadingSessions" class="cp-state"><span class="spinner-border spinner-border-sm"></span> Loading sessions…</div>
         <div v-else-if="!sessions.length && !error" class="cp-state">No sessions in this directory.</div>
-        <article v-for="s in loadingSessions ? [] : sessions" :key="s.id" class="cp-session">
+        <article v-for="s in loadingSessions ? [] : sessions" :key="s.session_id" class="cp-session">
           <header class="cp-session-head">
             <div class="cp-session-title">
               <strong>{{ s.title || 'Untitled session' }}</strong>
-              <span class="cp-project-meta">{{ ago(s.updated_at) }} · {{ s.id.slice(0, 8) }}</span>
+              <span class="cp-project-meta">{{ ago(s.updated_at) }} · {{ s.session_id.slice(0, 8) }}</span>
             </div>
-            <button class="cp-resume" @click="emit('resume-claude', s.path || selected!.path, s.id)">
+            <button class="cp-resume" @click="emit('resume-claude', selected!.path, s.session_id)">
               <i class="bi bi-play-fill"></i> Resume
             </button>
           </header>
@@ -167,6 +185,14 @@ onMounted(loadProjects)
             <p>{{ m.text }}</p>
           </div>
         </article>
+        <button
+          v-if="hasMore && !loadingSessions"
+          class="cp-more"
+          :disabled="loadingMore"
+          @click="loadSessions(selected!)"
+        >
+          {{ loadingMore ? 'Loading…' : 'Load more' }}
+        </button>
       </section>
     </template>
   </div>
@@ -299,6 +325,21 @@ onMounted(loadProjects)
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
+}
+
+.cp-more {
+  align-self: center;
+  background: #252526;
+  color: #d4d4d4;
+  border: 1px solid #3a3a3a;
+  border-radius: 6px;
+  padding: 0.3rem 0.9rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.cp-more:hover:not(:disabled) {
+  background: #2a2a2a;
 }
 
 .cp-error {

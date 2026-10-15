@@ -6,7 +6,7 @@ import type { EncryptionKeys } from '@/utils/encryption'
 import { createFileBrowser } from '@/utils/fileBrowse'
 import { formatDesktopError } from '@/utils/desktopError'
 import { useSettingsStore } from '@/stores/settings'
-import { detectPathSeparator, joinPath, normalizeComparablePath, relativeSegments } from '@/utils/filePath'
+import { detectPathSeparator, isPathWithinHome, joinPath, normalizeComparablePath, relativeSegments } from '@/utils/filePath'
 
 const props = defineProps<{
   session: Session
@@ -81,6 +81,11 @@ async function load(path: string) {
   selectedEntry.value = null
   try {
     const browse = await fileBrowser.value.browseFiles(path)
+    // A typed path can point anywhere: checked once the desktop has resolved it (.., ~).
+    if (!isPathWithinHome(browse.path, browse.home_path)) {
+      error.value = 'Only folders inside your home folder can be opened here.'
+      return
+    }
     currentPath.value = browse.path
     homePath.value = browse.home_path
     parentPath.value = browse.parent_path
@@ -116,7 +121,7 @@ function submitPath() {
 }
 
 function goToBreadcrumb(path: string) {
-  if (path !== currentPath.value) void load(path)
+  if (path !== currentPath.value || error.value) void load(path)
 }
 
 // In open-folder mode, files are shown for context but can't be picked —
