@@ -29,6 +29,10 @@ const SHELL_CHANNEL_LABEL = 'shell'
 const shellMsgControl = 0
 const shellMsgData = 1
 
+// Server drops a shell after ShellIdleTimeout (30s) without traffic; ping
+// well under that so a quiet terminal isn't mistaken for a dead one.
+const SHELL_PING_INTERVAL_MS = 10_000
+
 /** Runs command (instead of an interactive bash) in dir (instead of home). */
 export interface ShellExec {
   command: string
@@ -37,7 +41,7 @@ export interface ShellExec {
 }
 
 interface ShellControlMsg extends Partial<ShellExec> {
-  op?: 'size'
+  op?: 'size' | 'ping'
   cols?: number
   rows?: number
   shell_id?: string
@@ -90,10 +94,12 @@ function openP2PShell(
 
       let ackSettled = false
       let done = false
+      let pingTimer: ReturnType<typeof setInterval> | undefined
 
       function finish(err?: Error) {
         if (done) return
         done = true
+        clearInterval(pingTimer)
         if (!ackSettled) { ackSettled = true; rejectOuter(err ?? new Error('shell closed before it started')) }
         else onClose()
       }
@@ -110,6 +116,9 @@ function openP2PShell(
           try { ack = JSON.parse(new TextDecoder().decode(plaintext)) as ShellControlMsg }
           catch { finish(new Error('invalid shell response')); return }
           ackSettled = true
+          pingTimer = setInterval(() => {
+            try { channel.send(encodeControl({ op: 'ping' }, keys.encryptKey)) } catch { /* ignore */ }
+          }, SHELL_PING_INTERVAL_MS)
           resolveOuter({
             shellId: ack.shell_id ?? '',
             send: (bytes) => { try { channel.send(p2pEnvelope(shellMsgData, bytes, keys.encryptKey)) } catch { /* ignore */ } },
@@ -159,6 +168,9 @@ async function openWebTransportShell(
   try {
     await writeFrame(writer, encodeControl({ op: 'size', cols, rows, ...exec }, keys.encryptKey))
     const ack = await readShellAck(reader, keys.decryptKey)
+    const pingTimer = setInterval(() => {
+      void writeFrame(writer, encodeControl({ op: 'ping' }, keys.encryptKey)).catch(() => { /* ignore */ })
+    }, SHELL_PING_INTERVAL_MS)
 
     void (async () => {
       try {
@@ -172,6 +184,7 @@ async function openWebTransportShell(
       } catch {
         onClose()
       } finally {
+        clearInterval(pingTimer)
         signal?.removeEventListener('abort', onAbort)
       }
     })()
