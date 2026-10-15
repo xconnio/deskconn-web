@@ -8,14 +8,23 @@ import type { EncryptionKeys } from '../utils/encryption'
 import { formatDesktopError, isDesktopOfflineError } from '../utils/desktopError'
 import { encryptedCall } from '../utils/encryptedCall'
 
-const props = defineProps<{ realm: string; focused?: boolean }>()
+// One coding agent's sessions (Claude, Codex): each agent is its own app, with its own
+// procedures, served while it's installed on the machine.
+const props = defineProps<{
+  realm: string
+  focused?: boolean
+  agent: 'claude' | 'codex'
+  label: string
+  icon: string
+  accent: string
+}>()
 // Without a sessionId, starts a new session in dir.
-const emit = defineEmits<{ 'resume-claude': [dir: string, sessionId?: string] }>()
+const emit = defineEmits<{ 'resume-agent': [agent: string, dir: string, sessionId?: string] }>()
 
 const sessionCacheStore = useSessionCacheStore()
 const sessionEncryptionStore = useSessionEncryptionStore()
 
-// deskconnd's claude.project.list and claude.session.list, shared with `desk agent`.
+// deskconnd's <agent>.project.list and <agent>.session.list, shared with `desk agent`.
 interface Project {
   path: string
   sessions: number
@@ -56,7 +65,7 @@ async function loadProjects() {
   loading.value = true
   error.value = null
   try {
-    projects.value = await call<Project[]>('io.xconn.deskconn.deskconnd.claude.project.list')
+    projects.value = await call<Project[]>(`io.xconn.deskconn.deskconnd.${props.agent}.project.list`)
     const current = projects.value.find((p) => p.path === selected.value?.path) ?? projects.value[0]
     if (current) await selectProject(current)
   } catch (e) {
@@ -77,7 +86,7 @@ async function loadSessions(project: Project, loadingFlag = loadingMore) {
   loadingFlag.value = true
   error.value = null
   try {
-    const page = (await call<Session[] | null>('io.xconn.deskconn.deskconnd.claude.session.list', {
+    const page = (await call<Session[] | null>(`io.xconn.deskconn.deskconnd.${props.agent}.session.list`, {
       path: project.path, offset: loaded.value, limit: PAGE_SIZE,
     })) ?? []
     if (selected.value !== project) return
@@ -110,7 +119,7 @@ async function openPicker() {
 
 function onPickFolder(path: string) {
   picker.value = null
-  emit('resume-claude', path)
+  emit('resume-agent', props.agent, path)
 }
 
 function baseName(path: string): string {
@@ -129,12 +138,12 @@ onMounted(loadProjects)
 </script>
 
 <template>
-  <div class="cp-root">
+  <div class="cp-root" :style="{ '--cp-accent': accent }">
   <div class="cp-container">
-  <div class="claude-panel">
+  <div class="agent-panel">
     <div v-if="loading" class="cp-state"><span class="spinner-border spinner-border-sm"></span> Loading…</div>
     <div v-else-if="!projects.length" class="cp-state cp-state--column">
-      <span><i class="bi bi-claude"></i> {{ error ?? 'No Claude sessions on this machine yet.' }}</span>
+      <span><i class="bi" :class="icon"></i> {{ error ?? `No ${label} sessions on this machine yet.` }}</span>
       <button class="cp-resume" @click="openPicker"><i class="bi bi-folder-plus"></i> New session in folder…</button>
     </div>
     <template v-else>
@@ -163,7 +172,7 @@ onMounted(loadProjects)
       <section class="cp-content">
         <header v-if="selected" class="cp-content-head">
           <span class="cp-project-meta" :title="selected.path">{{ selected.path }}</span>
-          <button class="cp-resume" @click="emit('resume-claude', selected.path)">
+          <button class="cp-resume" @click="emit('resume-agent', agent, selected.path)">
             <i class="bi bi-plus-lg"></i> New session
           </button>
         </header>
@@ -176,12 +185,12 @@ onMounted(loadProjects)
               <strong>{{ s.title || 'Untitled session' }}</strong>
               <span class="cp-project-meta">{{ ago(s.updated_at) }} · {{ s.session_id.slice(0, 8) }}</span>
             </div>
-            <button class="cp-resume" @click="emit('resume-claude', selected!.path, s.session_id)">
+            <button class="cp-resume" @click="emit('resume-agent', agent, selected!.path, s.session_id)">
               <i class="bi bi-play-fill"></i> Resume
             </button>
           </header>
           <div v-for="(m, i) in s.messages" :key="i" class="cp-msg" :class="`cp-msg--${m.role}`">
-            <span class="cp-msg-role">{{ m.role === 'user' ? 'You' : 'Claude' }}</span>
+            <span class="cp-msg-role">{{ m.role === 'user' ? 'You' : label }}</span>
             <p>{{ m.text }}</p>
           </div>
         </article>
@@ -221,7 +230,7 @@ onMounted(loadProjects)
   scrollbar-color: #3a3a3a #000000;
 }
 
-.claude-panel {
+.agent-panel {
   display: flex;
   height: 100%;
   overflow: hidden;
@@ -293,7 +302,7 @@ onMounted(loadProjects)
 }
 
 .cp-project--active {
-  background: rgba(217, 119, 87, 0.22);
+  background: color-mix(in srgb, var(--cp-accent) 22%, transparent);
 }
 
 .cp-project-name {
@@ -376,7 +385,7 @@ onMounted(loadProjects)
 
 .cp-resume {
   flex-shrink: 0;
-  background: #d97757;
+  background: var(--cp-accent);
   color: #fff;
   border: 0;
   border-radius: 6px;
@@ -387,7 +396,7 @@ onMounted(loadProjects)
 }
 
 .cp-resume:hover {
-  background: #c4643f;
+  background: color-mix(in srgb, var(--cp-accent) 85%, #000);
 }
 
 .cp-msg {
@@ -397,7 +406,7 @@ onMounted(loadProjects)
 }
 
 .cp-msg--user {
-  border-left-color: #d97757;
+  border-left-color: var(--cp-accent);
 }
 
 .cp-msg-role {
@@ -421,7 +430,7 @@ onMounted(loadProjects)
 }
 
 @container (max-width: 560px) {
-  .claude-panel {
+  .agent-panel {
     flex-direction: column;
   }
   .cp-sidebar {
