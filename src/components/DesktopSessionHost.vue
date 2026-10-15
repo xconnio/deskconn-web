@@ -17,7 +17,7 @@ import { useCapabilitiesStore } from '@/stores/capabilities'
 import EmbeddedDesktopFiles from '@/components/EmbeddedDesktopFiles.vue'
 import TerminalPanel from '@/components/TerminalPanel.vue'
 import ResourceMonitor from '@/components/ResourceMonitor.vue'
-import ClaudePanel from '@/components/ClaudePanel.vue'
+import AgentPanel from '@/components/AgentPanel.vue'
 import DesktopSettingsPanel from '@/components/DesktopSettingsPanel.vue'
 import FilePreviewModal from '@/components/FilePreviewModal.vue'
 import TextEditor from '@/components/TextEditor.vue'
@@ -434,7 +434,22 @@ const apps: AppDef[] = [
     width: 820,
     height: 560,
   },
+  {
+    id: 'codex',
+    label: 'Codex',
+    icon: 'bi-openai',
+    iconColor: '#ffffff',
+    iconBg: '#0f0f0f',
+    width: 820,
+    height: 560,
+  },
 ]
+
+// Coding agents' apps (see AgentPanel), and how each resumes a session ("$1") in a terminal.
+const AGENTS: Record<string, { resume: string; accent: string }> = {
+  claude: { resume: 'claude --resume "$1"', accent: '#d97757' },
+  codex: { resume: 'codex resume "$1"', accent: '#10a37f' },
+}
 
 // Not pinned in the dock's launcher strip — these only show up (via dockApps
 // below) once an image/video is actually open, purely as an instance switcher.
@@ -457,9 +472,9 @@ const videoPlayerApp: AppDef = {
 }
 
 const dockApps = computed(() => {
-  // Apps the machine's owner/admin turned off (see the Settings app) aren't offered, nor
-  // Claude on a machine without Claude Code, which doesn't list it.
-  const list = apps.filter((a) => a.id === 'claude'
+  // Apps the machine's owner/admin turned off (see the Settings app) aren't offered, nor an
+  // agent's on a machine without that agent installed, which doesn't list it.
+  const list = apps.filter((a) => a.id in AGENTS
     ? capabilitiesStore.isListed(props.realm, a.id)
     : capabilitiesStore.isEnabled(props.realm, a.id))
   if (windows.value.some((w) => w.appId === 'image-viewer')) list.push(imageViewerApp)
@@ -491,7 +506,8 @@ const appComponents: Record<string, Component> = {
   'image-viewer': FilePreviewModal,
   'video-player': FilePreviewModal,
   'text-editor': TextEditor,
-  claude: ClaudePanel,
+  claude: AgentPanel,
+  codex: AgentPanel,
 }
 
 function windowProps(win: { id: string; appId: string; props: Record<string, unknown> }) {
@@ -513,10 +529,17 @@ function windowProps(win: { id: string; appId: string; props: Record<string, unk
         focused,
       }
     case 'claude':
+    case 'codex': {
+      const app = apps.find((a) => a.id === win.appId)!
       return {
         realm: props.realm,
         focused,
+        agent: win.appId,
+        label: app.label,
+        icon: app.icon,
+        accent: AGENTS[win.appId]!.accent,
       }
+    }
     case 'resource-monitor':
       return {
         realm: props.realm,
@@ -615,13 +638,14 @@ function onOpenTextEditor(session: Session, entry: FileEntry) {
   }, maximizedContainerSize())
 }
 
-// Opens a terminal running `claude --resume`, or a new `claude` without a sessionId, in dir. A login shell, so
-// claude is found on the user's PATH (deskconnd's own may lack ~/.local/bin).
-function onResumeClaude(dir: string, sessionId?: string) {
+// Opens a terminal resuming agent's session, or starting a new one without a sessionId, in dir.
+// A login shell, so the agent is found on the user's PATH (deskconnd's own may lack
+// ~/.local/bin, or nvm's bin).
+function onResumeAgent(agent: string, dir: string, sessionId?: string) {
   const terminalApp = apps.find((a) => a.id === 'terminal')!
   openWindow({
     appId: terminalApp.id,
-    title: 'Claude',
+    title: apps.find((a) => a.id === agent)?.label ?? agent,
     icon: terminalApp.icon,
     iconColor: terminalApp.iconColor,
     iconBg: terminalApp.iconBg,
@@ -630,7 +654,7 @@ function onResumeClaude(dir: string, sessionId?: string) {
     props: {
       exec: {
         command: 'bash',
-        args: sessionId ? ['-lc', 'exec claude --resume "$1"', 'claude', sessionId] : ['-lc', 'exec claude'],
+        args: sessionId ? ['-lc', `exec ${AGENTS[agent]!.resume}`, agent, sessionId] : ['-lc', `exec ${agent}`],
         dir,
       },
     },
@@ -788,7 +812,7 @@ onUnmounted(() => {
           :focused="focusedId === win.id"
           :mobile="isMobile"
           :use-toolbar-titlebar="win.appId === 'files' || win.appId === 'terminal' || win.appId === 'text-editor'"
-          :dark-titlebar="win.appId === 'terminal' || win.appId === 'text-editor' || win.appId === 'claude'"
+          :dark-titlebar="win.appId === 'terminal' || win.appId === 'text-editor' || win.appId in AGENTS"
           :inset-left="insetLeft"
           :inset-right="insetRight"
           :inset-bottom="insetBottom"
@@ -811,7 +835,7 @@ onUnmounted(() => {
                 @open-files="onOpenFiles"
                 @preview-file="onPreviewFile"
                 @open-text-editor="onOpenTextEditor"
-                @resume-claude="onResumeClaude"
+                @resume-agent="onResumeAgent"
                 @update-title="updateTitle(win.id, $event)"
               />
             </div>
