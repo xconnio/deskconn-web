@@ -11,6 +11,7 @@ import EmbeddedIndexedFiles from '@/components/EmbeddedIndexedFiles.vue'
 import { floatingWindowActionsKey, floatingWindowMobileKey, floatingWindowToolbarKey } from '@/composables/floatingWindowToolbar'
 import type { FileBrowseResult, FileEntry } from '@/types'
 import { parseFileEntry, createFileBrowser } from '@/utils/fileBrowse'
+import { encryptedCall } from '@/utils/encryptedCall'
 import {
   encryptPayload,
   decryptPayload,
@@ -34,6 +35,11 @@ const procedureFileRename = 'io.xconn.deskconn.deskconnd.file.rename'
 const procedureFileDelete = 'io.xconn.deskconn.deskconnd.file.delete'
 const procedureFileCopy = 'io.xconn.deskconn.deskconnd.file.copy'
 const procedureFileSearch = 'io.xconn.deskconn.deskconnd.file.search'
+const procedureFileThumbnails = 'io.xconn.deskconn.deskconnd.file.thumbnails'
+// Small batches so generated thumbnails appear one batch at a time, not a page at a time.
+const THUMBNAIL_BATCH = 8
+// Images, videos and PDFs: what deskconnd makes thumbnails of.
+const THUMBNAIL_EXT = /\.(jpe?g|png|gif|bmp|webp|ico|tiff?|heic|heif|mp4|webm|mov|avi|mkv|ogv|flv|wmv|m4v|3gp|pdf)$/i
 const outsideHomeMessage = 'Access denied. You can only browse files inside the home directory.'
 const PAGE_SIZE = 100
 
@@ -471,6 +477,33 @@ async function browseFiles(path: string, cursor?: string): Promise<FileBrowseRes
   return fileBrowser!.browseFiles(path, cursor, PAGE_SIZE)
 }
 
+// Bumped on navigation so the previous folder's batches stop.
+let thumbnailGeneration = 0
+
+// Thumbnails load after the listing, so a folder of large media shows right away.
+// deskconnd starts making them as soon as the folder is browsed and keeps them on disk, so
+// later visits get them back at once; on a first visit each batch shows as it's done.
+async function loadThumbnails(entries: FileEntry[]) {
+  const gen = thumbnailGeneration
+  const sess = session.value
+  if (!sess) return
+  const paths = entries
+    .filter((e) => !e.is_dir && !thumbnailUrls[e.path] && THUMBNAIL_EXT.test(e.name))
+    .map((e) => e.path)
+  const apply = (thumbs: Record<string, string>) => {
+    if (gen !== thumbnailGeneration) return
+    for (const [path, thumb] of Object.entries(thumbs)) thumbnailUrls[path] = `data:image/jpeg;base64,${thumb}`
+  }
+
+  for (let i = 0; i < paths.length && gen === thumbnailGeneration; i += THUMBNAIL_BATCH) {
+    try {
+      apply(await encryptedCall(sess, props.realm, procedureFileThumbnails, { paths: paths.slice(i, i + THUMBNAIL_BATCH) }))
+    } catch {
+      return
+    }
+  }
+}
+
 async function loadPath(path = '', skipHistory = false) {
   if (!session.value) return
 
@@ -502,6 +535,8 @@ async function loadPath(path = '', skipHistory = false) {
     currentBrowse.value = browse
     pathInput.value = browse.path
     selectedEntry.value = null
+    thumbnailGeneration++
+    void loadThumbnails(browse.entries ?? [])
     nextCursor.value = browse.next_cursor
     hasMore.value = browse.has_more ?? false
 
@@ -533,6 +568,7 @@ async function loadMore() {
     }
     nextCursor.value = browse.next_cursor
     hasMore.value = browse.has_more ?? false
+    void loadThumbnails(browse.entries ?? [])
   } catch (error) {
     errorMessage.value = formatError(error)
   } finally {
