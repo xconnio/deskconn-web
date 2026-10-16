@@ -340,6 +340,57 @@ function trackPointer(pointerId: number, onMove: (ev: PointerEvent) => void, onE
   el?.addEventListener('lostpointercapture', finish)
 }
 
+// Maximized windows sit against the screen's right edge, but app scrollbars
+// stop a few px short of it (window border, app padding). Slamming the cursor
+// to the edge and dragging should still scroll, like a native desktop, so a
+// press in this strip drives the scroller under it as if its thumb was grabbed.
+const EDGE_SCROLL_STRIP = 6
+
+function isScrollable(el: Element) {
+  if (el.scrollHeight <= el.clientHeight) return false
+  const { overflowY } = getComputedStyle(el)
+  return overflowY === 'auto' || overflowY === 'scroll'
+}
+
+function findScrollerAt(x: number, y: number) {
+  const root = rootEl.value
+  // elementsFromPoint (not just the topmost hit + ancestors): some scrollers,
+  // e.g. xterm's viewport, sit behind a sibling layer rather than above it.
+  for (const el of document.elementsFromPoint(x, y)) {
+    for (let cur: Element | null = el; cur && cur !== root; cur = cur.parentElement) {
+      if (isScrollable(cur)) return cur
+    }
+  }
+  return null
+}
+
+function onEdgeScrollPointerDown(e: PointerEvent) {
+  if (!props.maximized || props.mobile || isFullscreen.value || e.button !== 0) return
+  const rect = rootEl.value!.getBoundingClientRect()
+  if (e.clientX < rect.right - EDGE_SCROLL_STRIP) return
+  // Pressing the real scrollbar keeps its native behaviour (track paging etc).
+  const t = e.target as HTMLElement
+  if (isScrollable(t) && e.offsetX >= t.clientWidth) return
+
+  const scroller = findScrollerAt(rect.right - EDGE_SCROLL_STRIP - 24, e.clientY)
+  if (!scroller) return
+  e.preventDefault()
+  e.stopPropagation()
+  emit('focus') // stopPropagation also skips the root's own bubble-phase focus
+
+  const startY = e.clientY
+  const startTop = scroller.scrollTop
+  // Same ratio a scrollbar thumb uses: dragging the full track height scrolls
+  // the full content height.
+  const ratio = scroller.scrollHeight / scroller.clientHeight
+  suppressSelection()
+  trackPointer(
+    e.pointerId,
+    (ev) => { scroller.scrollTop = startTop + (ev.clientY - startY) * ratio },
+    restoreSelection,
+  )
+}
+
 function beginDrag(startX: number, startY: number, originX: number, originY: number, pointerId: number) {
   const el = rootEl.value
   const container = el?.parentElement
@@ -485,6 +536,7 @@ function startResize(e: PointerEvent, dir: string) {
       zIndex,
     }"
     @pointerdown="$emit('focus')"
+    @pointerdown.capture="onEdgeScrollPointerDown"
   >
     <div class="fwin-titlebar" :class="{ 'fwin-titlebar--dark': darkTitlebar }" @pointerdown="startDrag" @contextmenu.prevent>
       <!-- Mobile is one app at a time: no minimize/close, just a way back. -->
