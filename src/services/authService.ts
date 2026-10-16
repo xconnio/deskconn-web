@@ -245,7 +245,7 @@ export const authService = {
      return await wampService.connectWithCryptosign(authId, privateKey, realm)
   },
 
-  // Signals over the already-connected routed session, so P2P setup needs no
+  // Signals over the already-connected routed session, so direct setup needs no
   // second router connection.
   async shellWebRTCDesktop(authenticator: ClientAuthenticator, realm: string, session: WampSession) {
     const procedureWebRTCOffer = 'io.xconn.webrtc.offer'

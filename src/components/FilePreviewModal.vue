@@ -5,7 +5,7 @@
  * as a single whole-file range read (see services/fileStream.ts). Audio/video
  * play natively via a same-origin URL backed by a Service Worker Range-request
  * proxy (see sw-download.ts), which forwards range reads over the same
- * fileStream.ts protocol — works over either a direct P2P connection or the
+ * fileStream.ts protocol — works over either a direct connection or the
  * relay, whichever the session has.
  */
 import { ref, computed, inject, onMounted, onUnmounted } from 'vue'

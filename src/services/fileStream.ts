@@ -1,5 +1,5 @@
 // Client side of deskconn's stream-based file-transfer protocol: a transfer
-// opens a raw WebRTC data channel (P2P) or WebTransport stream (relay) on
+// opens a raw WebRTC data channel (direct) or WebTransport stream (relay) on
 // the caller's single existing connection, does a per-stream X25519 key
 // exchange, then an encrypted control message says what to do ('read' /
 // 'init' + 'write') followed by raw encrypted byte chunks (see
@@ -11,7 +11,7 @@
 // into one ordered stream (ChunkReassembler), uploads don't need to since
 // the server writes each chunk at its own offset. Anything smaller skips
 // all of that for a plain single-channel/single-stream path instead
-// (p2pReadRange/webTransportReadRange).
+// (directReadRange/webTransportReadRange).
 import { getWebRTCSession } from './rtcRegistry'
 import type { WampSession } from './wamp'
 import { baseName } from '@/utils/filePath'
@@ -85,7 +85,7 @@ function linkAbort(signal?: AbortSignal): AbortController {
 // Bounds the per-stream key exchange (and, for WebTransport, the one-shot
 // request/response) — mirrors p2pRequestTimeout in filetransferp2p.go. A
 // stalled or dropped first round-trip on a fresh channel/stream would
-// otherwise hang forever with no way to cancel it (see p2pKeyExchange /
+// otherwise hang forever with no way to cancel it (see directKeyExchange /
 // openWebTransportStream), since the caller-supplied AbortSignal only gets
 // wired up once these return.
 const HANDSHAKE_TIMEOUT_MS = 15_000
@@ -103,7 +103,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
 // ========================= Parallel chunk-worker pool =========================
 // Mirrors filetransfer.go's planChunks/effectiveWorkers/runChunkWorkers: the
 // unit of work a worker pulls off the shared queue, not the wire message
-// size (see P2P_MESSAGE_SIZE/WEBTRANSPORT_MESSAGE_SIZE below for that).
+// size (see DIRECT_MESSAGE_SIZE/WEBTRANSPORT_MESSAGE_SIZE below for that).
 
 const PARALLEL_CHUNK_SIZE = 4 * 1024 * 1024 // 4MB
 const PARALLEL_WORKERS = 4
@@ -265,12 +265,12 @@ export async function requestRangeStream(
   length: number,
   signal?: AbortSignal,
 ): Promise<RangeResult> {
-  const usesP2P = !!getWebRTCSession(session)
-  if (!usesP2P && typeof session?.openStream !== 'function') throw new NoDirectConnectionError()
+  const usesDirect = !!getWebRTCSession(session)
+  if (!usesDirect && typeof session?.openStream !== 'function') throw new NoDirectConnectionError()
 
   const relPath = baseName(path)
-  return usesP2P
-    ? p2pReadRange(session, path, relPath, offset, length, signal)
+  return usesDirect
+    ? directReadRange(session, path, relPath, offset, length, signal)
     : webTransportReadRange(session, realm, path, relPath, offset, length, signal)
 }
 
@@ -288,8 +288,8 @@ export async function requestRange(
   length: number,
   signal?: AbortSignal,
 ): Promise<RangeResult> {
-  const usesP2P = !!getWebRTCSession(session)
-  if (!usesP2P && typeof session?.openStream !== 'function') throw new NoDirectConnectionError()
+  const usesDirect = !!getWebRTCSession(session)
+  if (!usesDirect && typeof session?.openStream !== 'function') throw new NoDirectConnectionError()
 
   const relPath = baseName(path)
   const chunks = planChunks(offset, length)
@@ -297,8 +297,8 @@ export async function requestRange(
 
   return readRangeParallel(
     chunks, offset, length,
-    usesP2P
-      ? (s) => openP2PReadWorker(session, path, relPath, s)
+    usesDirect
+      ? (s) => openDirectReadWorker(session, path, relPath, s)
       : (s) => openWebTransportReadWorker(session, realm, path, relPath, s),
     signal,
   )
@@ -313,8 +313,8 @@ export async function uploadFile(
   onProgress?: (progress: UploadProgress) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const usesP2P = !!getWebRTCSession(session)
-  if (!usesP2P && typeof session?.openStream !== 'function') throw new NoDirectConnectionError()
+  const usesDirect = !!getWebRTCSession(session)
+  if (!usesDirect && typeof session?.openStream !== 'function') throw new NoDirectConnectionError()
 
   const initReq: FSRequest = {
     op: 'init',
@@ -323,7 +323,7 @@ export async function uploadFile(
     source_is_dir: false,
     target_is_dir_hint: true,
   }
-  if (usesP2P) await p2pOneShotRequest(session, initReq, signal)
+  if (usesDirect) await directOneShotRequest(session, initReq, signal)
   else await webTransportRequest(session, realm, initReq, signal)
 
   if (file.size === 0) return
@@ -339,8 +339,8 @@ export async function uploadFile(
   }
 
   await runChunkWorkers(chunks, effectiveWorkers(chunks.length), abort, async (nextJob) => {
-    const worker = usesP2P
-      ? await openP2PWriteWorker(session, destDir, fileName, false, true, file, abort.signal)
+    const worker = usesDirect
+      ? await openDirectWriteWorker(session, destDir, fileName, false, true, file, abort.signal)
       : await openWebTransportWriteWorker(session, realm, destDir, fileName, false, true, file, abort.signal)
     try {
       let job: Chunk | undefined
@@ -353,21 +353,21 @@ export async function uploadFile(
   })
 }
 
-// ============================== P2P (WebRTC) ==============================
+// ============================= Direct (WebRTC) =============================
 
-const p2pMsgControl = 0
-const p2pMsgData = 1
+const directMsgControl = 0
+const directMsgData = 1
 
 // fileStreamChunkSize on the Go side — the wire message size within one
 // read/write request, not the parallel-worker job unit (PARALLEL_CHUNK_SIZE).
-const P2P_MESSAGE_SIZE = 16 * 1024
-const P2P_MAX_BUFFERED = 512 * 1024
-const P2P_LOW_BUFFERED = 256 * 1024
+const DIRECT_MESSAGE_SIZE = 16 * 1024
+const DIRECT_MAX_BUFFERED = 512 * 1024
+const DIRECT_LOW_BUFFERED = 256 * 1024
 
 // Exported: also used by shellStream.ts, which sends the same kind-byte
-// envelope shape over both a P2P data channel and (unlike file transfer,
+// envelope shape over both a direct data channel and (unlike file transfer,
 // which never needs it — see the header comment) a WebTransport stream too.
-export function p2pEnvelope(kind: number, plaintext: Uint8Array, key: Uint8Array): Uint8Array<ArrayBuffer> {
+export function directEnvelope(kind: number, plaintext: Uint8Array, key: Uint8Array): Uint8Array<ArrayBuffer> {
   const ciphertext = encryptPayload(plaintext, key)
   const envelope = new Uint8Array(1 + ciphertext.length)
   envelope[0] = kind
@@ -375,7 +375,7 @@ export function p2pEnvelope(kind: number, plaintext: Uint8Array, key: Uint8Array
   return envelope
 }
 
-export function p2pDecryptEnvelope(data: ArrayBuffer, key: Uint8Array): { kind: number; plaintext: Uint8Array } {
+export function directDecryptEnvelope(data: ArrayBuffer, key: Uint8Array): { kind: number; plaintext: Uint8Array } {
   const bytes = new Uint8Array(data)
   const kind = bytes[0]
   if (kind === undefined) throw new Error('empty message')
@@ -384,9 +384,9 @@ export function p2pDecryptEnvelope(data: ArrayBuffer, key: Uint8Array): { kind: 
 
 // label defaults to the file-stream channel label so existing callers are
 // unaffected; shellStream.ts passes shellChannelLabel ("shell") instead —
-// the server classifies a P2P shell channel by label rather than by its
+// the server classifies a direct shell channel by label rather than by its
 // first message's content (see HandleAuxDataChannel in iptunnel.go).
-export async function openP2PChannel(
+export async function openDirectChannel(
   session: WampSession, signal?: AbortSignal, label: string = CHANNEL_LABEL,
 ): Promise<RTCDataChannel> {
   const webrtc = getWebRTCSession(session)
@@ -406,7 +406,7 @@ export async function openP2PChannel(
 // if the channel closes/errors mid-handshake — the caller is expected to
 // have already wired its own abort signal to close the channel, so this is
 // what turns that close into a real rejection instead of a silent stall.
-export async function p2pKeyExchange(channel: RTCDataChannel): Promise<EncryptionKeys> {
+export async function directKeyExchange(channel: RTCDataChannel): Promise<EncryptionKeys> {
   const { publicKey, privateKey } = createX25519KeyPair()
 
   const serverPublicKey = await new Promise<Uint8Array>((resolve, reject) => {
@@ -449,20 +449,20 @@ export async function p2pKeyExchange(channel: RTCDataChannel): Promise<Encryptio
 // One-shot request/response on its own channel — the server closes the
 // channel right after replying (see serveWebRTCInit), so it can't be reused
 // for a follow-up read/write.
-async function p2pOneShotRequest(session: WampSession, req: FSRequest, signal?: AbortSignal): Promise<FSResponse> {
-  const channel = await openP2PChannel(session, signal)
+async function directOneShotRequest(session: WampSession, req: FSRequest, signal?: AbortSignal): Promise<FSResponse> {
+  const channel = await openDirectChannel(session, signal)
   // Wired before the key exchange (not after) so a cancel during the
   // handshake actually closes the channel instead of being a no-op until
   // the handshake happens to finish on its own.
   signal?.addEventListener('abort', () => { try { channel.close() } catch { /* ignore */ } }, { once: true })
   try {
-    const keys = await p2pKeyExchange(channel)
+    const keys = await directKeyExchange(channel)
     return await withTimeout(new Promise<FSResponse>((resolve, reject) => {
       channel.onmessage = (event: MessageEvent) => {
         if (!(event.data instanceof ArrayBuffer)) return
         try {
-          const { kind, plaintext } = p2pDecryptEnvelope(event.data, keys.decryptKey)
-          if (kind !== p2pMsgControl) return
+          const { kind, plaintext } = directDecryptEnvelope(event.data, keys.decryptKey)
+          if (kind !== directMsgControl) return
           const resp = JSON.parse(new TextDecoder().decode(plaintext)) as FSResponse
           if (!resp.ok) { reject(responseError(resp)); return }
           resolve(resp)
@@ -472,7 +472,7 @@ async function p2pOneShotRequest(session: WampSession, req: FSRequest, signal?: 
       }
       channel.onclose = () => reject(new Error('connection closed'))
       channel.onerror = () => reject(new Error('connection error'))
-      channel.send(p2pEnvelope(p2pMsgControl, new TextEncoder().encode(JSON.stringify(req)), keys.encryptKey))
+      channel.send(directEnvelope(directMsgControl, new TextEncoder().encode(JSON.stringify(req)), keys.encryptKey))
     }), HANDSHAKE_TIMEOUT_MS, 'timed out waiting for response')
   } finally {
     try { channel.close() } catch { /* ignore */ }
@@ -484,7 +484,7 @@ async function p2pOneShotRequest(session: WampSession, req: FSRequest, signal?: 
 // returning any of it) — one channel per download, matching the original
 // working implementation. Resolves as soon as the server acks the request;
 // the caller reads the actual bytes off the returned stream as they land.
-function p2pReadRange(
+function directReadRange(
   session: WampSession,
   path: string,
   relPath: string,
@@ -494,12 +494,12 @@ function p2pReadRange(
 ): Promise<RangeResult> {
   return new Promise<RangeResult>((resolveOuter, rejectOuter) => {
     void (async () => {
-      const channel = await openP2PChannel(session, signal)
+      const channel = await openDirectChannel(session, signal)
       // Wired before the key exchange (not after) so a cancel during the
       // handshake actually closes the channel instead of being a no-op
       // until the handshake happens to finish on its own.
       signal?.addEventListener('abort', () => { try { channel.close() } catch { /* ignore */ } }, { once: true })
-      const keys = await p2pKeyExchange(channel)
+      const keys = await directKeyExchange(channel)
 
       let ackSettled = false
       let done = false
@@ -522,11 +522,11 @@ function p2pReadRange(
       channel.onmessage = (event: MessageEvent) => {
         if (!(event.data instanceof ArrayBuffer)) return
         let kind: number, plaintext: Uint8Array
-        try { ({ kind, plaintext } = p2pDecryptEnvelope(event.data, keys.decryptKey)) }
+        try { ({ kind, plaintext } = directDecryptEnvelope(event.data, keys.decryptKey)) }
         catch (err) { fail(err instanceof Error ? err : new Error('decrypt failed')); return }
 
         if (!ackSettled) {
-          if (kind !== p2pMsgControl) return
+          if (kind !== directMsgControl) return
           let resp: FSResponse
           try { resp = JSON.parse(new TextDecoder().decode(plaintext)) as FSResponse }
           catch { fail(new Error('invalid response')); return }
@@ -536,7 +536,7 @@ function p2pReadRange(
           return
         }
 
-        if (kind !== p2pMsgData || done) return
+        if (kind !== directMsgData || done) return
         received += plaintext.length
         streamController.enqueue(plaintext)
         if (received >= length) {
@@ -549,7 +549,7 @@ function p2pReadRange(
       channel.onerror = () => fail(new Error('connection error'))
 
       const req: FSRequest = { op: 'read', path, rel_path: relPath, offset, length }
-      channel.send(p2pEnvelope(p2pMsgControl, new TextEncoder().encode(JSON.stringify(req)), keys.encryptKey))
+      channel.send(directEnvelope(directMsgControl, new TextEncoder().encode(JSON.stringify(req)), keys.encryptKey))
     })().catch(rejectOuter)
   })
 }
@@ -561,13 +561,13 @@ function p2pReadRange(
 // the ack-wait and the data-wait phase of each readChunk call, so a channel
 // close/error at any point during a chunk correctly rejects whichever
 // phase is in flight instead of only one of them.
-async function openP2PReadWorker(session: WampSession, path: string, relPath: string, signal: AbortSignal): Promise<ChunkReadWorker> {
-  const channel = await openP2PChannel(session, signal)
+async function openDirectReadWorker(session: WampSession, path: string, relPath: string, signal: AbortSignal): Promise<ChunkReadWorker> {
+  const channel = await openDirectChannel(session, signal)
   // Wired before the key exchange (not after) so a cancel during the
   // handshake actually closes the channel instead of being a no-op until
   // the handshake happens to finish on its own.
   signal.addEventListener('abort', () => { try { channel.close() } catch { /* ignore */ } }, { once: true })
-  const keys = await p2pKeyExchange(channel)
+  const keys = await directKeyExchange(channel)
 
   let ackResolve: ((r: FSResponse) => void) | null = null
   let onDataPiece: ((data: Uint8Array) => void) | null = null
@@ -577,15 +577,15 @@ async function openP2PReadWorker(session: WampSession, path: string, relPath: st
   channel.onmessage = (event: MessageEvent) => {
     if (!(event.data instanceof ArrayBuffer)) return
     let kind: number, plaintext: Uint8Array
-    try { ({ kind, plaintext } = p2pDecryptEnvelope(event.data, keys.decryptKey)) } catch { return }
-    if (kind === p2pMsgControl) {
+    try { ({ kind, plaintext } = directDecryptEnvelope(event.data, keys.decryptKey)) } catch { return }
+    if (kind === directMsgControl) {
       try {
         const resp = JSON.parse(new TextDecoder().decode(plaintext)) as FSResponse
         ackResolve?.(resp)
       } catch { /* ignore malformed frame */ }
       return
     }
-    if (kind === p2pMsgData) onDataPiece?.(plaintext)
+    if (kind === directMsgData) onDataPiece?.(plaintext)
   }
   const onClosed = () => {
     closedErr = new Error('connection closed')
@@ -623,19 +623,19 @@ async function openP2PReadWorker(session: WampSession, path: string, relPath: st
       }
 
       const req: FSRequest = { op: 'read', path, rel_path: relPath, offset, length }
-      channel.send(p2pEnvelope(p2pMsgControl, new TextEncoder().encode(JSON.stringify(req)), keys.encryptKey))
+      channel.send(directEnvelope(directMsgControl, new TextEncoder().encode(JSON.stringify(req)), keys.encryptKey))
     })
   }
 
   return { readChunk, close: () => { try { channel.close() } catch { /* ignore */ } } }
 }
 
-// Upload counterpart to p2pReadRange: unlike downloads, uploads DO use the
+// Upload counterpart to directReadRange: unlike downloads, uploads DO use the
 // parallel chunk-worker pool (see the top-of-file comment for why) — this
 // opens one data channel and keeps it for the lifetime of the worker,
 // reusing it across every chunk that worker is assigned. Mirrors
 // p2pWriteWorker in filetransferp2p.go.
-async function openP2PWriteWorker(
+async function openDirectWriteWorker(
   session: WampSession,
   path: string,
   relPath: string,
@@ -644,14 +644,14 @@ async function openP2PWriteWorker(
   file: Blob,
   signal: AbortSignal,
 ): Promise<ChunkWriteWorker> {
-  const channel = await openP2PChannel(session, signal)
+  const channel = await openDirectChannel(session, signal)
   // Wired before the key exchange (not after) so a cancel during the
   // handshake actually closes the channel instead of being a no-op until
   // the handshake happens to finish on its own.
   signal.addEventListener('abort', () => { try { channel.close() } catch { /* ignore */ } }, { once: true })
-  const keys = await p2pKeyExchange(channel)
+  const keys = await directKeyExchange(channel)
 
-  channel.bufferedAmountLowThreshold = P2P_LOW_BUFFERED
+  channel.bufferedAmountLowThreshold = DIRECT_LOW_BUFFERED
   let bufferedLowResolve: (() => void) | null = null
   channel.onbufferedamountlow = () => { const wake = bufferedLowResolve; bufferedLowResolve = null; wake?.() }
 
@@ -661,8 +661,8 @@ async function openP2PWriteWorker(
   channel.onmessage = (event: MessageEvent) => {
     if (!(event.data instanceof ArrayBuffer)) return
     try {
-      const { kind, plaintext } = p2pDecryptEnvelope(event.data, keys.decryptKey)
-      if (kind !== p2pMsgControl) return
+      const { kind, plaintext } = directDecryptEnvelope(event.data, keys.decryptKey)
+      if (kind !== directMsgControl) return
       const resp = JSON.parse(new TextDecoder().decode(plaintext)) as FSResponse
       ackResolve?.(resp)
     } catch { /* ignore malformed frame */ }
@@ -685,7 +685,7 @@ async function openP2PWriteWorker(
       op: 'write', path, rel_path: relPath, offset: chunkOffset, length: chunkLength,
       source_is_dir: sourceIsDir, target_is_dir_hint: targetIsDirHint,
     }
-    channel.send(p2pEnvelope(p2pMsgControl, new TextEncoder().encode(JSON.stringify(req)), keys.encryptKey))
+    channel.send(directEnvelope(directMsgControl, new TextEncoder().encode(JSON.stringify(req)), keys.encryptKey))
     const ack = await waitForAck()
     if (!ack.ok) throw responseError(ack)
 
@@ -693,11 +693,11 @@ async function openP2PWriteWorker(
     while (sent < chunkLength) {
       if (signal.aborted) throw new Error('cancelled')
       const start = chunkOffset + sent
-      const end = Math.min(start + P2P_MESSAGE_SIZE, chunkOffset + chunkLength)
+      const end = Math.min(start + DIRECT_MESSAGE_SIZE, chunkOffset + chunkLength)
       const bytes = new Uint8Array(await file.slice(start, end).arrayBuffer())
-      const envelope = p2pEnvelope(p2pMsgData, bytes, keys.encryptKey)
+      const envelope = directEnvelope(directMsgData, bytes, keys.encryptKey)
 
-      while (channel.bufferedAmount + envelope.length > P2P_MAX_BUFFERED) {
+      while (channel.bufferedAmount + envelope.length > DIRECT_MAX_BUFFERED) {
         if (closedErr) throw closedErr
         await new Promise<void>((resolve) => { bufferedLowResolve = resolve })
       }

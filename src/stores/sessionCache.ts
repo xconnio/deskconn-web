@@ -6,19 +6,19 @@ import { registerWebRTCSession } from '../services/rtcRegistry'
 import { useAuthStore } from './auth'
 import { useSessionEncryptionStore } from './sessionEncryption'
 
-const P2P_TIMEOUT_MS = 10_000
+const DIRECT_TIMEOUT_MS = 10_000
 
-// Realm -> the session currently upgraded to P2P. Keyed to the session (not
+// Realm -> the session currently upgraded to direct. Keyed to the session (not
 // just the realm) so an old session dropping can't clear a newer one's flag.
-const p2pSessions = shallowRef(new Map<string, Session>())
+const directSessions = shallowRef(new Map<string, Session>())
 
-function setP2P(realm: string, session: Session, on: boolean) {
-  const has = p2pSessions.value.get(realm) === session
+function setDirect(realm: string, session: Session, on: boolean) {
+  const has = directSessions.value.get(realm) === session
   if (on === has) return
-  const next = new Map(p2pSessions.value)
+  const next = new Map(directSessions.value)
   if (on) next.set(realm, session)
   else next.delete(realm)
-  p2pSessions.value = next
+  directSessions.value = next
 }
 
 // Both live outside the store so they persist across hot reloads / resets
@@ -109,14 +109,14 @@ export const useSessionCacheStore = defineStore('sessionCache', () => {
     return false
   }
 
-  // Reactive: flips once the background P2P upgrade lands (see upgradable()).
-  function isP2P(realm: string): boolean {
-    return p2pSessions.value.has(realm)
+  // Reactive: flips once the background direct upgrade lands (see upgradable()).
+  function isDirect(realm: string): boolean {
+    return directSessions.value.has(realm)
   }
 
   return {
     acquire,
-    isP2P,
+    isDirect,
     invalidateAll,
     invalidate,
     isActive,
@@ -127,16 +127,16 @@ export const useSessionCacheStore = defineStore('sessionCache', () => {
   }
 })
 
-// Routed first so the desktop is usable right away; P2P is negotiated over
+// Routed first so the desktop is usable right away; direct is negotiated over
 // that same session in the background and swapped in once it's up. Callers
 // keep this one stable object, so the upgrade is invisible to them. The
 // routed session stays open after the swap: it carries the WebRTC signaling
 // and any WebTransport streams opened before the upgrade.
-// ponytail: no fallback to routed if P2P later drops — the whole session
-// disconnects and the next acquire() starts over (routed, then P2P again).
+// ponytail: no fallback to routed if direct later drops — the whole session
+// disconnects and the next acquire() starts over (routed, then direct again).
 function upgradable(realm: string, routed: Session): Session {
   let current = routed
-  let p2p: Session | null = null
+  let direct: Session | null = null
   let closed = false
   let inflight = 0
   const callbacks: Array<(reason: string) => Promise<void>> = []
@@ -144,8 +144,8 @@ function upgradable(realm: string, routed: Session): Session {
   async function drop(reason: string) {
     if (closed) return
     closed = true
-    setP2P(realm, session, false)
-    for (const s of [routed, p2p]) if (s?.isConnected()) s.leave().catch(() => {})
+    setDirect(realm, session, false)
+    for (const s of [routed, direct]) if (s?.isConnected()) s.leave().catch(() => {})
     for (const cb of callbacks) await cb(reason).catch(() => {})
   }
 
@@ -193,22 +193,22 @@ function upgradable(realm: string, routed: Session): Session {
     const attempt = authStore.shellWebRTC(realm, routed)
     let timer: ReturnType<typeof setTimeout> | undefined
     const timeout = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error('WebRTC connection timeout')), P2P_TIMEOUT_MS)
+      timer = setTimeout(() => reject(new Error('WebRTC connection timeout')), DIRECT_TIMEOUT_MS)
     })
     let webrtc: WebRTCSession
     try {
       const result = await Promise.race([attempt, timeout])
       if (!result) return
-      ;[p2p, webrtc] = result as [Session, WebRTCSession]
+      ;[direct, webrtc] = result as [Session, WebRTCSession]
     } catch {
-      // Timed out or failed: stay routed, and close a late P2P session if it shows up.
+      // Timed out or failed: stay routed, and close a late direct session if it shows up.
       attempt.then((r) => { if (r) r[0].leave().catch(() => {}) }).catch(() => {})
       return
     } finally {
       clearTimeout(timer)
     }
 
-    const upgraded = p2p
+    const upgraded = direct
     try {
       // Fails on deskconnd builds without key exchange — nothing to re-key then.
       const keys = await encryption.exchange(upgraded).catch(() => null)
@@ -224,9 +224,9 @@ function upgradable(realm: string, routed: Session): Session {
       registerWebRTCSession(session, webrtc)
       current = upgraded
       upgraded.onDisconnect(drop)
-      setP2P(realm, session, true)
+      setDirect(realm, session, true)
     } catch {
-      p2p = null
+      direct = null
       upgraded.leave().catch(() => {})
     }
   })()

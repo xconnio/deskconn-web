@@ -1,7 +1,7 @@
-// Tracks which WampSession instances are backed by a live WebRTC P2P
+// Tracks which WampSession instances are backed by a live WebRTC direct
 // RTCPeerConnection, as opposed to a cloud-relay-only connection. Kept as a
 // side table (rather than a property on Session) so the WAMP transport stays
-// transport-agnostic; only components that specifically need P2P (e.g. raw
+// transport-agnostic; only components that specifically need a direct connection (e.g. raw
 // data channel file streaming) need to consult it.
 import { toRaw } from 'vue'
 import type { WebRTCSession } from 'xconn-webrtc-js'
@@ -10,7 +10,7 @@ import type { WampSession } from './wamp'
 
 // Keyed by the raw session: a session that ends up in Vue state (e.g. a window's props)
 // comes back as a reactive proxy, which a WeakMap wouldn't recognize. markRaw can't prevent
-// that for sessionCache's upgradable proxy, which forwards reads to the P2P session after the
+// that for sessionCache's upgradable proxy, which forwards reads to the direct session after the
 // upgrade, so its markRaw flag stops showing.
 const registry = new WeakMap<object, WebRTCSession>()
 
