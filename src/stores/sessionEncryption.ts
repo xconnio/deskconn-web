@@ -66,7 +66,7 @@ export const useSessionEncryptionStore = defineStore('sessionEncryption', () => 
     dropAppKeys(realm)
   }
 
-  // deskconnd keys by caller session, so a P2P upgrade needs its own
+  // deskconnd keys by caller session, so a direct upgrade needs its own
   // exchange. Written into the existing object in place so components that
   // already hold it pick up the new keys without re-fetching.
   function adopt(realm: string, keys: EncryptionKeys) {

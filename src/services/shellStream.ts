@@ -1,11 +1,11 @@
 // Client side of deskconn's stream-based interactive shell protocol: one
-// raw WebRTC data channel (P2P) or WebTransport stream (relay) per terminal
+// raw WebRTC data channel (direct) or WebTransport stream (relay) per terminal
 // tab, reusing fileStream.ts's channel/stream opening and key-exchange
 // helpers. Each message is a [kind_byte] + encryptPayload(...) envelope —
 // kind 0 control JSON, kind 1 raw PTY data (see shellstream.go/
 // shellclient.go for the server/CLI side).
 //
-// Not implemented: shellOpMigrate (the CLI's QUIC-then-P2P live migration —
+// Not implemented: shellOpMigrate (the CLI's QUIC-then-direct live migration —
 // the web app's transport is already fixed per session before any tab
 // opens) and self-reported AuthID for agent forwarding (needs a local SSH
 // agent, which a browser doesn't have).
@@ -13,10 +13,10 @@ import { getWebRTCSession } from './rtcRegistry'
 import type { WampSession } from './wamp'
 import {
   NoDirectConnectionError,
-  openP2PChannel,
-  p2pKeyExchange,
-  p2pEnvelope,
-  p2pDecryptEnvelope,
+  openDirectChannel,
+  directKeyExchange,
+  directEnvelope,
+  directDecryptEnvelope,
   openWebTransportStream,
   abortWebTransportStream,
   writeFrame,
@@ -65,16 +65,16 @@ export async function openShell(
   signal?: AbortSignal,
   exec?: ShellExec,
 ): Promise<ShellHandle> {
-  if (getWebRTCSession(session)) return openP2PShell(session, cols, rows, onData, onClose, signal, exec)
+  if (getWebRTCSession(session)) return openDirectShell(session, cols, rows, onData, onClose, signal, exec)
   if (typeof session?.openStream === 'function') return openWebTransportShell(session, realm, cols, rows, onData, onClose, signal, exec)
   throw new NoDirectConnectionError()
 }
 
 function encodeControl(msg: ShellControlMsg, key: Uint8Array): Uint8Array<ArrayBuffer> {
-  return p2pEnvelope(shellMsgControl, new TextEncoder().encode(JSON.stringify(msg)), key)
+  return directEnvelope(shellMsgControl, new TextEncoder().encode(JSON.stringify(msg)), key)
 }
 
-function openP2PShell(
+function openDirectShell(
   session: WampSession,
   cols: number,
   rows: number,
@@ -85,12 +85,12 @@ function openP2PShell(
 ): Promise<ShellHandle> {
   return new Promise<ShellHandle>((resolveOuter, rejectOuter) => {
     void (async () => {
-      const channel = await openP2PChannel(session, signal, SHELL_CHANNEL_LABEL)
+      const channel = await openDirectChannel(session, signal, SHELL_CHANNEL_LABEL)
       // Wired before the key exchange (not after) so a cancel during the
       // handshake actually closes the channel instead of being a no-op
       // until the handshake happens to finish on its own.
       signal?.addEventListener('abort', () => { try { channel.close() } catch { /* ignore */ } }, { once: true })
-      const keys = await p2pKeyExchange(channel)
+      const keys = await directKeyExchange(channel)
 
       let ackSettled = false
       let done = false
@@ -107,7 +107,7 @@ function openP2PShell(
       channel.onmessage = (event: MessageEvent) => {
         if (!(event.data instanceof ArrayBuffer)) return
         let kind: number, plaintext: Uint8Array
-        try { ({ kind, plaintext } = p2pDecryptEnvelope(event.data, keys.decryptKey)) }
+        try { ({ kind, plaintext } = directDecryptEnvelope(event.data, keys.decryptKey)) }
         catch { return }
 
         if (!ackSettled) {
@@ -121,7 +121,7 @@ function openP2PShell(
           }, SHELL_PING_INTERVAL_MS)
           resolveOuter({
             shellId: ack.shell_id ?? '',
-            send: (bytes) => { try { channel.send(p2pEnvelope(shellMsgData, bytes, keys.encryptKey)) } catch { /* ignore */ } },
+            send: (bytes) => { try { channel.send(directEnvelope(shellMsgData, bytes, keys.encryptKey)) } catch { /* ignore */ } },
             resize: (c, r) => { try { channel.send(encodeControl({ op: 'size', cols: c, rows: r }, keys.encryptKey)) } catch { /* ignore */ } },
             close: () => { try { channel.close() } catch { /* ignore */ } },
           })
@@ -191,7 +191,7 @@ async function openWebTransportShell(
 
     return {
       shellId: ack.shell_id ?? '',
-      send: (bytes) => { void writeFrame(writer, p2pEnvelope(shellMsgData, bytes, keys.encryptKey)).catch(() => { /* ignore */ }) },
+      send: (bytes) => { void writeFrame(writer, directEnvelope(shellMsgData, bytes, keys.encryptKey)).catch(() => { /* ignore */ }) },
       resize: (c, r) => { void writeFrame(writer, encodeControl({ op: 'size', cols: c, rows: r }, keys.encryptKey)).catch(() => { /* ignore */ }) },
       close: () => abortWebTransportStream(raw),
     }

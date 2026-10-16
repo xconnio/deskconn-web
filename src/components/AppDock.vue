@@ -50,9 +50,8 @@ const accountPanelStore = useAccountPanelStore()
 
 const sessionCacheStore = useSessionCacheStore()
 const connectionMode = computed(() =>
-  props.offline ? 'offline' : sessionCacheStore.isP2P(props.realm) ? 'p2p' : 'routed',
+  props.offline ? 'offline' : sessionCacheStore.isDirect(props.realm) ? 'direct' : 'routed',
 )
-const CONNECTION_LABELS = { p2p: 'p2p', routed: 'routed', offline: 'offline' }
 
 const dockRootRef = ref<HTMLElement | null>(null)
 const iconEls = new Map<string, HTMLElement>()
@@ -518,7 +517,7 @@ onUnmounted(() => {
   <div class="machine-badge" :class="mobile ? 'machine-badge-mobile' : `machine-badge-${position}`">
     <span class="machine-badge-dot" :class="`machine-badge-dot-${connectionMode}`"></span>
     <span class="machine-badge-name">{{ desktopName }}</span>
-    <span class="machine-badge-mode">({{ CONNECTION_LABELS[connectionMode] }})</span>
+    <span class="machine-badge-mode">({{ connectionMode }})</span>
   </div>
 
   <!-- Mobile: pinned apps as desktop icons instead of dock icons — same
@@ -799,7 +798,7 @@ onUnmounted(() => {
   border-radius: 50%;
 }
 
-.machine-badge-dot-p2p {
+.machine-badge-dot-direct {
   background: #22c55e;
 }
 
