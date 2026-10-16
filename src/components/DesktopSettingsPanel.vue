@@ -79,35 +79,17 @@ onMounted(() => {
     <div class="desktop-settings-inner">
       <h4 class="desktop-settings-title">Appearance</h4>
 
-      <div class="desktop-settings-grid">
-        <div class="desktop-settings-card desktop-settings-row">
-          <p class="mb-0 fw-semibold">Task bar position</p>
-          <select
-            class="form-select form-select-sm desktop-settings-select"
-            :value="settingsStore.getDockPosition(props.realm)"
-            @change="settingsStore.setDockPosition(props.realm, ($event.target as HTMLSelectElement).value as DockPosition)"
-          >
-            <option value="bottom">Bottom</option>
-            <option value="left">Left</option>
-            <option value="right">Right</option>
-          </select>
-        </div>
-
-        <div class="desktop-settings-card desktop-settings-row">
-          <p class="mb-0 fw-semibold">Resource Monitor refresh interval</p>
-          <select
-            class="form-select form-select-sm desktop-settings-select"
-            :value="settingsStore.getResourceMonitorInterval(props.realm)"
-            @change="settingsStore.setResourceMonitorInterval(props.realm, parseInt(($event.target as HTMLSelectElement).value, 10))"
-          >
-            <option value="1">1 second</option>
-            <option value="5">5 seconds</option>
-            <option value="10">10 seconds</option>
-            <option value="15">15 seconds</option>
-            <option value="30">30 seconds</option>
-            <option value="60">60 seconds</option>
-          </select>
-        </div>
+      <div class="desktop-settings-card desktop-settings-row">
+        <p class="mb-0 fw-semibold">Task bar position</p>
+        <select
+          class="form-select form-select-sm desktop-settings-select"
+          :value="settingsStore.getDockPosition(props.realm)"
+          @change="settingsStore.setDockPosition(props.realm, ($event.target as HTMLSelectElement).value as DockPosition)"
+        >
+          <option value="bottom">Bottom</option>
+          <option value="left">Left</option>
+          <option value="right">Right</option>
+        </select>
       </div>
 
       <template v-if="capabilities.length">

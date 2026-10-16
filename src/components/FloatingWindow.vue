@@ -199,7 +199,7 @@ function startDrag(e: PointerEvent) {
   // search box — without losing the rest of the titlebar as a drag handle
   // (unlike excluding the whole toolbar host, which for apps whose toolbar
   // fills the titlebar — terminal, files — would make it undraggable).
-  if (target.closest('.fwin-controls, .fwin-no-drag, button, input')) return
+  if (target.closest('.fwin-controls, .fwin-menu, .fwin-no-drag, button, input, select')) return
   // Titlebar isn't a focusable element, but the browser's default pointerdown
   // action still shifts focus to it (blurring whatever had it, e.g. the terminal).
   e.preventDefault()
