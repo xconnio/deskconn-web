@@ -43,7 +43,17 @@ const isLoadingOrgInvitations = ref(false)
 const respondingOrgId = ref<string | null>(null)
 const respondOrgError = ref('')
 
+// Each area gets its own tab rather than stacking every list in one scroll.
+type AccessTab = 'machines' | 'organizations' | 'invitations'
+const tabs: { id: AccessTab; label: string; icon: string }[] = [
+  { id: 'machines', label: 'Machines', icon: 'bi-pc-display' },
+  { id: 'organizations', label: 'Organizations', icon: 'bi-building' },
+  { id: 'invitations', label: 'Invitations', icon: 'bi-envelope' },
+]
+const activeTab = ref<AccessTab>('machines')
+
 // --- Computed ---
+const pendingInviteCount = computed(() => invitations.value.length + orgInvitations.value.length)
 const accessibleMachines = computed(() =>
   machinesStore.desktops.filter((d) => d.role === 'owner' || d.role === 'admin'),
 )
@@ -172,13 +182,26 @@ const handleRespond = async (invite: DesktopInvite, status: 'accepted' | 'reject
 
         <template v-if="!selectedMachineId && !selectedOrgId">
 
-        <!-- ── Machines group ── -->
-        <div>
-          <div class="d-flex align-items-center gap-2 mb-2">
-            <i class="bi bi-pc-display text-muted"></i>
-            <h6 class="discord-group-heading mb-0">Machines</h6>
-          </div>
-          <p class="text-muted small mb-3">Manage who can access your machines</p>
+        <ul class="nav nav-underline access-tabs mb-3" role="tablist">
+          <li v-for="t in tabs" :key="t.id" class="nav-item" role="presentation">
+            <button
+              class="nav-link d-flex align-items-center gap-2"
+              :class="{ active: activeTab === t.id }"
+              role="tab"
+              :aria-selected="activeTab === t.id"
+              @click="activeTab = t.id"
+            >
+              <i class="bi" :class="t.icon"></i> {{ t.label }}
+              <span v-if="t.id === 'invitations' && pendingInviteCount" class="badge rounded-pill bg-danger">
+                {{ pendingInviteCount }}
+              </span>
+            </button>
+          </li>
+        </ul>
+
+        <!-- ── Machines ── -->
+        <div v-if="activeTab === 'machines'">
+          <p class="text-muted small mb-3">Pick a machine to manage who can access it.</p>
 
           <div v-if="machinesStore.isLoadingDesktops" class="text-center py-3">
             <div class="spinner-border spinner-border-sm text-primary" role="status">
@@ -213,18 +236,12 @@ const handleRespond = async (invite: DesktopInvite, status: 'accepted' | 'reject
           </div>
         </div>
 
-        <hr class="access-section-divider" />
-
-        <!-- ── Organizations group ── -->
-        <div>
-          <div class="d-flex align-items-center gap-2 mb-2">
-            <i class="bi bi-building text-muted"></i>
-            <h6 class="discord-group-heading mb-0">Organizations</h6>
-          </div>
+        <!-- ── Organizations ── -->
+        <div v-else-if="activeTab === 'organizations'">
           <div class="d-flex justify-content-between align-items-center mb-3">
-            <p class="text-muted small mb-0">Create and manage your organizations</p>
+            <p class="text-muted small mb-0">Group people into organizations and share machines with them.</p>
             <button
-              class="btn btn-primary btn-sm rounded-pill btn-compact shadow-none no-underline-hover"
+              class="btn btn-primary btn-sm rounded-pill btn-compact shadow-none no-underline-hover flex-shrink-0 text-nowrap"
               @click="showCreateOrgModal = true"
             >
               <i class="bi bi-plus-lg me-1"></i> Add New
@@ -262,34 +279,24 @@ const handleRespond = async (invite: DesktopInvite, status: 'accepted' | 'reject
           </div>
         </div>
 
-        <hr class="access-section-divider" />
+        <!-- ── Invitations ── -->
+        <div v-else>
+          <p class="text-muted small mb-3">Invitations other people have sent you to join their machines and organizations.</p>
 
-        <!-- ── Invitations group ── -->
-        <div>
-          <div class="d-flex align-items-center gap-2 mb-2">
-            <i class="bi bi-envelope text-muted"></i>
-            <h6 class="discord-group-heading mb-0">Invitations</h6>
-          </div>
-          <p class="text-muted small mb-3">Pending invitations to machines and organizations</p>
-
-          <!-- Machine invitations -->
-          <h6 class="fw-semibold text-muted text-uppercase mb-2" style="font-size: 0.75rem; letter-spacing: 0.05em;">
-            <i class="bi bi-pc-display me-1"></i> Machines
-          </h6>
-
-          <div v-if="respondError" class="alert alert-danger d-flex align-items-center mb-3 py-2" role="alert">
-            <i class="bi bi-exclamation-triangle-fill me-2"></i>{{ respondError }}
+          <div v-if="respondError || respondOrgError" class="alert alert-danger d-flex align-items-center mb-3 py-2" role="alert">
+            <i class="bi bi-exclamation-triangle-fill me-2"></i>{{ respondError || respondOrgError }}
           </div>
 
-          <div v-if="isLoadingInvitations" class="text-center py-3">
+          <div v-if="isLoadingInvitations || isLoadingOrgInvitations" class="text-center py-3">
             <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
           </div>
 
-          <div v-else-if="invitations.length === 0" class="card border-dashed p-3 text-center bg-transparent mb-3">
-            <p class="text-muted small mb-0">No pending machine invitations.</p>
+          <div v-else-if="pendingInviteCount === 0" class="card border-dashed p-4 text-center bg-transparent">
+            <i class="bi bi-envelope-open text-muted fs-4 mb-2"></i>
+            <p class="text-muted small mb-0">You're all caught up. No pending invitations.</p>
           </div>
 
-          <div v-else class="card border-0 shadow-sm mb-3">
+          <div v-else class="card border-0 shadow-sm">
             <div class="list-group list-group-flush rounded-3">
               <div v-for="invite in invitations" :key="invite.id" class="list-group-item border-0 px-3 py-2">
                 <div class="d-flex align-items-center justify-content-between gap-3 flex-wrap">
@@ -298,11 +305,9 @@ const handleRespond = async (invite: DesktopInvite, status: 'accepted' | 'reject
                       <i class="bi bi-pc-display fs-5 text-primary"></i>
                     </div>
                     <div class="min-w-0">
-                      <div class="fw-semibold text-dark">{{ invite.desktop?.name ?? 'A machine' }}</div>
+                      <div class="fw-semibold text-dark text-truncate">{{ invite.desktop?.name ?? 'A machine' }}</div>
                       <div class="text-muted small">
-                        Invited with
-                        <span class="badge bg-light text-dark border ms-1">{{ invite.role }}</span>
-                        access
+                        Machine · <span class="text-capitalize">{{ invite.role }}</span> access
                       </div>
                     </div>
                   </div>
@@ -325,28 +330,7 @@ const handleRespond = async (invite: DesktopInvite, status: 'accepted' | 'reject
                   </div>
                 </div>
               </div>
-            </div>
-          </div>
 
-          <!-- Organization invitations -->
-          <h6 class="fw-semibold text-muted text-uppercase mb-2" style="font-size: 0.75rem; letter-spacing: 0.05em;">
-            <i class="bi bi-building me-1"></i> Organizations
-          </h6>
-
-          <div v-if="respondOrgError" class="alert alert-danger d-flex align-items-center mb-3 py-2" role="alert">
-            <i class="bi bi-exclamation-triangle-fill me-2"></i>{{ respondOrgError }}
-          </div>
-
-          <div v-if="isLoadingOrgInvitations" class="text-center py-3">
-            <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
-          </div>
-
-          <div v-else-if="orgInvitations.length === 0" class="card border-dashed p-3 text-center bg-transparent mb-3">
-            <p class="text-muted small mb-0">No pending organization invitations.</p>
-          </div>
-
-          <div v-else class="card border-0 shadow-sm mb-3">
-            <div class="list-group list-group-flush rounded-3">
               <div v-for="invite in orgInvitations" :key="invite.id" class="list-group-item border-0 px-3 py-2">
                 <div class="d-flex align-items-center justify-content-between gap-3 flex-wrap">
                   <div class="d-flex align-items-center gap-3 min-w-0">
@@ -354,10 +338,9 @@ const handleRespond = async (invite: DesktopInvite, status: 'accepted' | 'reject
                       <i class="bi bi-building fs-5 text-primary"></i>
                     </div>
                     <div class="min-w-0">
-                      <div class="fw-semibold text-dark">{{ invite.organization?.name ?? 'An organization' }}</div>
+                      <div class="fw-semibold text-dark text-truncate">{{ invite.organization?.name ?? 'An organization' }}</div>
                       <div class="text-muted small">
-                        Invited as
-                        <span class="badge bg-light text-dark border ms-1 text-capitalize">{{ invite.role }}</span>
+                        Organization · <span class="text-capitalize">{{ invite.role }}</span>
                       </div>
                     </div>
                   </div>
@@ -523,10 +506,5 @@ const handleRespond = async (invite: DesktopInvite, status: 'accepted' | 'reject
 
 .min-w-0 {
   min-width: 0;
-}
-
-.access-section-divider {
-  margin: 2rem 0;
-  border-color: #e8ecf0;
 }
 </style>

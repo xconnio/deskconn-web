@@ -263,6 +263,27 @@ a:hover {
   margin: 0 0 0.5rem;
 }
 
+/* Tab strip shared by the Access Management pages. */
+.access-tabs {
+  border-bottom: 1px solid #e8ecf0;
+  gap: 1.25rem;
+}
+
+.access-tabs .nav-link {
+  color: #64748b;
+  font-size: 0.9rem;
+  font-weight: 600;
+  padding: 0.5rem 0;
+}
+
+.access-tabs .nav-link.active {
+  color: #0f172a;
+}
+
+.access-tabs .badge {
+  font-size: 0.65rem;
+}
+
 .discord-row {
   display: flex;
   align-items: center;

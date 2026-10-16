@@ -57,6 +57,18 @@ const isAddingOrg = ref(false)
 const addOrgError = ref('')
 const isLoadingOrgList = ref(false)
 
+// Collaborators, teams and sent invites each get their own tab instead of
+// stacking three lists in one scroll. Sent invites only matter to admins.
+type MachineTab = 'people' | 'teams' | 'invites'
+const activeTab = ref<MachineTab>('people')
+const tabs = computed(() => [
+  { id: 'people' as const, label: 'Collaborators', icon: 'bi-people', count: userAccesses.value.length },
+  { id: 'teams' as const, label: 'Teams', icon: 'bi-building', count: orgAccesses.value.length },
+  ...(isAdminOrOwner.value
+    ? [{ id: 'invites' as const, label: 'Sent invites', icon: 'bi-send', count: pendingInvites.value.length }]
+    : []),
+])
+
 const fetchAll = async () => {
   if (!authStore.session) return
   await Promise.all([fetchMyAccess(), fetchUserAccesses(), fetchOrgAccesses()])
@@ -196,6 +208,7 @@ const handleInviteUser = async () => {
     await authService.inviteUserToDesktop(authStore.session, machineId, inviteEmail.value, inviteRole.value)
     closeInviteModal()
     await fetchPendingInvites()
+    activeTab.value = 'invites' // show where the new invite landed
     inviteSuccessToast.value = true
     setTimeout(() => { inviteSuccessToast.value = false }, 3000)
   } catch (err) {
@@ -317,16 +330,28 @@ const userSubtitle = (access: DesktopUserAccess) => {
           </div>
         </div>
 
+        <ul class="nav nav-underline access-tabs mb-3" role="tablist">
+          <li v-for="t in tabs" :key="t.id" class="nav-item" role="presentation">
+            <button
+              class="nav-link d-flex align-items-center gap-2"
+              :class="{ active: activeTab === t.id }"
+              role="tab"
+              :aria-selected="activeTab === t.id"
+              @click="activeTab = t.id"
+            >
+              <i class="bi" :class="t.icon"></i> {{ t.label }}
+              <span v-if="t.count" class="badge rounded-pill bg-secondary">{{ t.count }}</span>
+            </button>
+          </li>
+        </ul>
+
         <!-- ── Collaborators (People) ── -->
-        <section class="mb-4">
-          <div class="d-flex justify-content-between align-items-center mb-3">
-            <div>
-              <h5 class="discord-group-heading mb-0">Collaborators</h5>
-              <p class="text-muted mb-0 access-subtext">Users who have direct access to this machine</p>
-            </div>
+        <section v-if="activeTab === 'people'">
+          <div class="d-flex justify-content-between align-items-center gap-3 mb-3">
+            <p class="text-muted mb-0 access-subtext">People who have direct access to this machine.</p>
             <button
               v-if="isAdminOrOwner"
-              class="btn btn-sm btn-outline-primary rounded-pill btn-compact"
+              class="btn btn-sm btn-outline-primary rounded-pill btn-compact flex-shrink-0 text-nowrap"
               @click="openInviteModal"
             >
               <i class="bi bi-person-plus me-1"></i> Invite collaborator
@@ -398,20 +423,15 @@ const userSubtitle = (access: DesktopUserAccess) => {
         </section>
 
         <!-- ── Pending Invitations ── -->
-        <section v-if="isAdminOrOwner" class="mb-4">
-          <div class="d-flex justify-content-between align-items-center mb-3">
-            <div>
-              <h5 class="discord-group-heading mb-0">Pending Invitations</h5>
-              <p class="text-muted mb-0 access-subtext">Invitations you have sent that are awaiting a response</p>
-            </div>
-          </div>
+        <section v-else-if="activeTab === 'invites'">
+          <p class="text-muted mb-3 access-subtext">Invitations you've sent that haven't been answered yet.</p>
 
           <div v-if="isLoadingInvites" class="text-center py-4">
             <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
           </div>
 
           <div v-else-if="pendingInvites.length === 0" class="card border-dashed p-4 text-center bg-transparent">
-            <p class="text-muted small mb-0">No pending invitations.</p>
+            <p class="text-muted small mb-0">No invitations waiting for a response.</p>
           </div>
 
           <div v-else class="card border-0 shadow-sm">
@@ -450,15 +470,12 @@ const userSubtitle = (access: DesktopUserAccess) => {
         </section>
 
         <!-- ── Teams (Organizations) ── -->
-        <section class="mb-4">
-          <div class="d-flex justify-content-between align-items-center mb-3">
-            <div>
-              <h5 class="discord-group-heading mb-0">Teams</h5>
-              <p class="text-muted mb-0 access-subtext">Organizations with access — all their members inherit access</p>
-            </div>
+        <section v-else>
+          <div class="d-flex justify-content-between align-items-center gap-3 mb-3">
+            <p class="text-muted mb-0 access-subtext">Organizations with access. All of their members can use this machine.</p>
             <button
               v-if="isAdminOrOwner"
-              class="btn btn-sm btn-outline-primary rounded-pill btn-compact"
+              class="btn btn-sm btn-outline-primary rounded-pill btn-compact flex-shrink-0 text-nowrap"
               @click="openOrgModal"
             >
               <i class="bi bi-building-add me-1"></i> Add a team
