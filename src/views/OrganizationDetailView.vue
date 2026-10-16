@@ -77,6 +77,16 @@ const isAdminOrOwner = computed(() => {
   return me?.role === 'admin' || me?.role === 'owner'
 })
 
+// Members and sent invites get their own tabs; sent invites only for admins.
+type OrgTab = 'members' | 'invites'
+const activeTab = ref<OrgTab>('members')
+const tabs = computed(() => [
+  { id: 'members' as const, label: 'Members', icon: 'bi-people', count: organization.value?.members?.length ?? 0 },
+  ...(isAdminOrOwner.value
+    ? [{ id: 'invites' as const, label: 'Sent invites', icon: 'bi-send', count: pendingInvites.value.length }]
+    : []),
+])
+
 const fetchOrganizationDetails = async () => {
   if (!authStore.session) return
   isLoading.value = true
@@ -220,6 +230,7 @@ const handleInviteUser = async () => {
     )
     closeInviteModal()
     await fetchPendingInvites()
+    activeTab.value = 'invites' // show where the new invite landed
     inviteSuccessToast.value = true
     setTimeout(() => { inviteSuccessToast.value = false }, 3000)
   } catch (err: unknown) {
@@ -364,15 +375,28 @@ const handleRemoveMember = async (userId: string) => {
         <i class="bi bi-exclamation-triangle-fill me-2"></i>{{ removeError }}
       </div>
 
+      <ul class="nav nav-underline access-tabs mb-3" role="tablist">
+          <li v-for="t in tabs" :key="t.id" class="nav-item" role="presentation">
+            <button
+              class="nav-link d-flex align-items-center gap-2"
+              :class="{ active: activeTab === t.id }"
+              role="tab"
+              :aria-selected="activeTab === t.id"
+              @click="activeTab = t.id"
+            >
+              <i class="bi" :class="t.icon"></i> {{ t.label }}
+              <span v-if="t.count" class="badge rounded-pill bg-secondary">{{ t.count }}</span>
+            </button>
+          </li>
+        </ul>
+
       <!-- Members section -->
-      <div class="d-flex justify-content-between align-items-center mb-3">
-        <div>
-          <h5 class="discord-group-heading mb-0">Members</h5>
-          <p class="text-muted mb-0 access-subtext">People with access to this organization</p>
-        </div>
+      <template v-if="activeTab === 'members'">
+      <div class="d-flex justify-content-between align-items-center gap-3 mb-3">
+        <p class="text-muted mb-0 access-subtext">People in this organization.</p>
         <button
           v-if="isAdminOrOwner"
-          class="btn btn-sm btn-outline-primary rounded-pill btn-compact"
+          class="btn btn-sm btn-outline-primary rounded-pill btn-compact flex-shrink-0 text-nowrap"
           @click="openInviteModal"
         >
           <i class="bi bi-person-plus me-1"></i> Invite member
@@ -452,14 +476,11 @@ const handleRemoveMember = async (userId: string) => {
         </div>
       </div>
 
+      </template>
+
       <!-- Pending Invitations section (admin/owner only) -->
-      <template v-if="isAdminOrOwner">
-        <div class="d-flex justify-content-between align-items-center mb-3">
-          <div>
-            <h5 class="discord-group-heading mb-0">Pending Invitations</h5>
-            <p class="text-muted mb-0 access-subtext">Invitations sent that are awaiting a response</p>
-          </div>
-        </div>
+      <template v-else>
+        <p class="text-muted mb-3 access-subtext">Invitations you've sent that haven't been answered yet.</p>
 
         <div v-if="isLoadingInvites" class="text-center py-3">
           <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
@@ -469,7 +490,7 @@ const handleRemoveMember = async (userId: string) => {
           v-else-if="pendingInvites.length === 0"
           class="card border-dashed text-center bg-transparent p-3 mb-3"
         >
-          <p class="text-muted small mb-0">No pending invitations.</p>
+          <p class="text-muted small mb-0">No invitations waiting for a response.</p>
         </div>
 
         <div v-else class="card border-0 shadow-sm mb-3">
