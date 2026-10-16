@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, inject, onMounted, onUnmounted, watch } from 'vue'
 import { useSessionCacheStore } from '../stores/sessionCache'
 import { useSettingsStore } from '../stores/settings'
+import { floatingWindowMenuKey } from '../composables/floatingWindowToolbar'
 import { formatDesktopError, isDesktopOfflineError } from '../utils/desktopError'
 import { encryptedCall } from '../utils/encryptedCall'
 
@@ -13,6 +14,8 @@ const props = defineProps<{
 
 const sessionCacheStore = useSessionCacheStore()
 const settingsStore = useSettingsStore()
+const menuHostRef = inject(floatingWindowMenuKey)
+const menuTarget = computed(() => menuHostRef?.value ?? null)
 
 interface NetworkInterface {
   name: string
@@ -372,6 +375,23 @@ function handleKill() {
 
 <template>
   <div class="resource-monitor">
+    <Teleport :to="menuTarget ?? 'body'" :disabled="!menuTarget">
+      <label v-if="menuTarget" class="rm-menu-interval">
+        <span><i class="bi bi-arrow-repeat"></i> Refresh interval</span>
+        <select
+          class="form-select form-select-sm"
+          :value="settingsStore.getResourceMonitorInterval(props.realm)"
+          @change="settingsStore.setResourceMonitorInterval(props.realm, parseInt(($event.target as HTMLSelectElement).value, 10))"
+        >
+          <option value="1">1 second</option>
+          <option value="5">5 seconds</option>
+          <option value="10">10 seconds</option>
+          <option value="15">15 seconds</option>
+          <option value="30">30 seconds</option>
+          <option value="60">60 seconds</option>
+        </select>
+      </label>
+    </Teleport>
     <div v-if="loading" class="rm-loading">
       <div class="spinner-border spinner-border-sm text-secondary" role="status"></div>
       <span>Loading stats…</span>
@@ -641,6 +661,32 @@ function handleKill() {
 </template>
 
 <style scoped>
+.rm-menu-interval {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #334155;
+  white-space: nowrap;
+}
+
+.rm-menu-interval span {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.rm-menu-interval select {
+  width: auto;
+  font-size: 0.75rem;
+  padding-top: 0.15rem;
+  padding-bottom: 0.15rem;
+}
+
 .resource-monitor {
   display: flex;
   height: 100%;
