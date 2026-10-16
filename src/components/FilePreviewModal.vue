@@ -90,6 +90,14 @@ function goNext() {
   goToEntry(target)
 }
 
+// Fullscreen the wrap rather than the <img> so the prev/next buttons and the
+// slide transition keep working while fullscreen.
+function toggleImageFullscreen(e: MouseEvent) {
+  const wrap = (e.currentTarget as HTMLElement).closest('.preview-image-wrap')
+  if (document.fullscreenElement) document.exitFullscreen()
+  else wrap?.requestFullscreen?.()
+}
+
 function handleKeydown(e: KeyboardEvent) {
   if (!props.focused || editMode.value) return
   if (e.key === 'ArrowLeft' && canGoPrev.value) { e.preventDefault(); goPrev() }
@@ -719,7 +727,7 @@ onUnmounted(() => {
           <i class="bi bi-chevron-left"></i>
         </button>
         <Transition :name="`image-slide-${navDirection}`">
-          <img :key="previewBlobUrl" :src="previewBlobUrl" :alt="currentEntry.name" class="preview-image" />
+          <img :key="previewBlobUrl" :src="previewBlobUrl" :alt="currentEntry.name" class="preview-image" @dblclick="toggleImageFullscreen" />
         </Transition>
         <div v-if="imageSwapping" class="preview-image-swap-spinner">
           <div class="spinner-border spinner-border-sm text-light" role="status"><span class="visually-hidden">Loading…</span></div>
