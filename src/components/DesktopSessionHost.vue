@@ -639,8 +639,8 @@ function onOpenTextEditor(session: Session, entry: FileEntry) {
 }
 
 // Opens a terminal resuming agent's session, or starting a new one without a sessionId, in dir.
-// A login shell, so the agent is found on the user's PATH (deskconnd's own may lack
-// ~/.local/bin, or nvm's bin).
+// An interactive login shell, so the agent is found on the user's PATH: deskconnd's own, as a
+// systemd service, has neither ~/.local/bin nor nvm's bin, which ~/.bashrc adds.
 function onResumeAgent(agent: string, dir: string, sessionId?: string) {
   const terminalApp = apps.find((a) => a.id === 'terminal')!
   openWindow({
@@ -654,7 +654,7 @@ function onResumeAgent(agent: string, dir: string, sessionId?: string) {
     props: {
       exec: {
         command: 'bash',
-        args: sessionId ? ['-lc', `exec ${AGENTS[agent]!.resume}`, agent, sessionId] : ['-lc', `exec ${agent}`],
+        args: sessionId ? ['-lic', `exec ${AGENTS[agent]!.resume}`, agent, sessionId] : ['-lic', `exec ${agent}`],
         dir,
       },
     },
