@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, shallowRef, onMounted } from 'vue'
+import { computed, ref, shallowRef, watch } from 'vue'
 import type { Session as WampSession } from 'xconn'
 import GitFolderPicker from './GitFolderPicker.vue'
 import { useSessionCacheStore } from '../stores/sessionCache'
@@ -8,15 +8,19 @@ import type { EncryptionKeys } from '../utils/encryption'
 import { formatDesktopError, isDesktopOfflineError } from '../utils/desktopError'
 import { encryptedCall } from '../utils/encryptedCall'
 
-// One coding agent's sessions (Claude, Codex): each agent is its own app, with its own
-// procedures, served while it's installed on the machine.
-const props = defineProps<{
-  realm: string
-  focused?: boolean
-  agent: 'claude' | 'codex'
+// The coding agents' sessions (Claude, Codex), one agent at a time: each agent is its own
+// app on the machine, with its own procedures, served while it's installed.
+interface Agent {
+  id: string
   label: string
   icon: string
   accent: string
+}
+
+const props = defineProps<{
+  realm: string
+  focused?: boolean
+  agents: Agent[]
 }>()
 // Without a sessionId, starts a new session in dir.
 const emit = defineEmits<{ 'resume-agent': [agent: string, dir: string, sessionId?: string] }>()
@@ -37,6 +41,10 @@ interface Session {
   updated_at: string
   messages?: { role: 'user' | 'assistant'; text: string }[]
 }
+
+const agentId = ref(props.agents[0]?.id)
+// Falls back to another agent if this one's uninstalled while open.
+const current = computed(() => props.agents.find((a) => a.id === agentId.value) ?? props.agents[0])
 
 const projects = ref<Project[]>([])
 const selected = ref<Project | null>(null)
@@ -62,16 +70,20 @@ async function call<T>(procedure: string, arg?: unknown): Promise<T> {
 }
 
 async function loadProjects() {
+  const agent = current.value
+  if (!agent) return
   loading.value = true
   error.value = null
   try {
-    projects.value = await call<Project[]>(`io.xconn.deskconn.deskconnd.${props.agent}.project.list`)
-    const current = projects.value.find((p) => p.path === selected.value?.path) ?? projects.value[0]
-    if (current) await selectProject(current)
+    const list = await call<Project[]>(`io.xconn.deskconn.deskconnd.${agent.id}.project.list`)
+    if (agent !== current.value) return
+    projects.value = list
+    const project = list.find((p) => p.path === selected.value?.path) ?? list[0]
+    if (project) await selectProject(project)
   } catch (e) {
-    error.value = formatDesktopError(e)
+    if (agent === current.value) error.value = formatDesktopError(e)
   } finally {
-    loading.value = false
+    if (agent === current.value) loading.value = false
   }
 }
 
@@ -83,13 +95,14 @@ function selectProject(project: Project) {
 }
 
 async function loadSessions(project: Project, loadingFlag = loadingMore) {
+  const agent = current.value!
   loadingFlag.value = true
   error.value = null
   try {
-    const page = (await call<Session[] | null>(`io.xconn.deskconn.deskconnd.${props.agent}.session.list`, {
+    const page = (await call<Session[] | null>(`io.xconn.deskconn.deskconnd.${agent.id}.session.list`, {
       path: project.path, offset: loaded.value, limit: PAGE_SIZE,
     })) ?? []
-    if (selected.value !== project) return
+    if (selected.value !== project || agent !== current.value) return
     loaded.value += page.length
     hasMore.value = page.length === PAGE_SIZE
     // Sessions without any chat yet (only settings records) have nothing to resume. One in use
@@ -119,7 +132,7 @@ async function openPicker() {
 
 function onPickFolder(path: string) {
   picker.value = null
-  emit('resume-agent', props.agent, path)
+  emit('resume-agent', current.value!.id, path)
 }
 
 function baseName(path: string): string {
@@ -134,16 +147,32 @@ function ago(iso: string): string {
   return `${Math.floor(s / 86400)}d ago`
 }
 
-onMounted(loadProjects)
+// Each agent has its own projects: switching keeps the selected directory if the new one has it.
+watch(() => current.value?.id, () => {
+  projects.value = []
+  sessions.value = []
+  loadProjects()
+}, { immediate: true })
 </script>
 
 <template>
-  <div class="cp-root" :style="{ '--cp-accent': accent }">
+  <div class="cp-root" :style="{ '--cp-accent': current?.accent }">
   <div class="cp-container">
+  <div class="cp-tabs">
+    <button
+      v-for="a in agents"
+      :key="a.id"
+      class="cp-tab"
+      :class="{ 'cp-tab--active': a.id === current?.id }"
+      @click="agentId = a.id"
+    >
+      <i class="bi" :class="a.icon"></i> {{ a.label }}
+    </button>
+  </div>
   <div class="agent-panel">
     <div v-if="loading" class="cp-state"><span class="spinner-border spinner-border-sm"></span> Loading…</div>
     <div v-else-if="!projects.length" class="cp-state cp-state--column">
-      <span><i class="bi" :class="icon"></i> {{ error ?? `No ${label} sessions on this machine yet.` }}</span>
+      <span><i class="bi" :class="current?.icon"></i> {{ error ?? `No ${current?.label} sessions on this machine yet.` }}</span>
       <button class="cp-resume" @click="openPicker"><i class="bi bi-folder-plus"></i> New session in folder…</button>
     </div>
     <template v-else>
@@ -172,7 +201,7 @@ onMounted(loadProjects)
       <section class="cp-content">
         <header v-if="selected" class="cp-content-head">
           <span class="cp-project-meta" :title="selected.path">{{ selected.path }}</span>
-          <button class="cp-resume" @click="emit('resume-agent', agent, selected.path)">
+          <button class="cp-resume" @click="emit('resume-agent', current!.id, selected.path)">
             <i class="bi bi-plus-lg"></i> New session
           </button>
         </header>
@@ -185,12 +214,12 @@ onMounted(loadProjects)
               <strong>{{ s.title || 'Untitled session' }}</strong>
               <span class="cp-project-meta">{{ ago(s.updated_at) }} · {{ s.session_id.slice(0, 8) }}</span>
             </div>
-            <button class="cp-resume" @click="emit('resume-agent', agent, selected!.path, s.session_id)">
+            <button class="cp-resume" @click="emit('resume-agent', current!.id, selected!.path, s.session_id)">
               <i class="bi bi-play-fill"></i> Resume
             </button>
           </header>
           <div v-for="(m, i) in s.messages" :key="i" class="cp-msg" :class="`cp-msg--${m.role}`">
-            <span class="cp-msg-role">{{ m.role === 'user' ? 'You' : label }}</span>
+            <span class="cp-msg-role">{{ m.role === 'user' ? 'You' : current?.label }}</span>
             <p>{{ m.text }}</p>
           </div>
         </article>
@@ -225,14 +254,45 @@ onMounted(loadProjects)
 
 .cp-container {
   height: 100%;
+  display: flex;
+  flex-direction: column;
   container-type: inline-size;
   color-scheme: dark;
   scrollbar-color: #3a3a3a #000000;
 }
 
+.cp-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0.3rem 0.4rem;
+  background: #181818;
+  border-bottom: 1px solid #333333;
+}
+
+.cp-tab {
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  padding: 0.25rem 0.7rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #94a3b8;
+  cursor: pointer;
+}
+
+.cp-tab:hover {
+  background: #2a2a2a;
+}
+
+.cp-tab--active {
+  background: color-mix(in srgb, var(--cp-accent) 22%, transparent);
+  color: #e2e8f0;
+}
+
 .agent-panel {
   display: flex;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
   background: #1e1e1e;
 }
