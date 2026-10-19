@@ -426,30 +426,26 @@ const apps: AppDef[] = [
     minWidth: 420,
   },
   {
-    id: 'claude',
-    label: 'Claude',
-    icon: 'bi-claude',
+    id: 'agents',
+    label: 'Agents',
+    icon: 'bi-robot',
     iconColor: '#ffffff',
-    iconBg: '#d97757',
-    width: 820,
-    height: 560,
-  },
-  {
-    id: 'codex',
-    label: 'Codex',
-    icon: 'bi-openai',
-    iconColor: '#ffffff',
-    iconBg: '#0f0f0f',
+    iconBg: '#dc2626',
     width: 820,
     height: 560,
   },
 ]
 
-// Coding agents' apps (see AgentPanel), and the arguments each resumes a session with.
-const AGENTS: Record<string, { resume: string[]; accent: string }> = {
-  claude: { resume: ['--resume'], accent: '#d97757' },
-  codex: { resume: ['resume'], accent: '#10a37f' },
+// Coding agents, all in the Agents app (see AgentPanel): each is its own app on the machine,
+// listed while it's installed. resume is the arguments it resumes a session with.
+const AGENTS: Record<string, { label: string; icon: string; accent: string; resume: string[] }> = {
+  claude: { label: 'Claude', icon: 'bi-claude', accent: '#d97757', resume: ['--resume'] },
+  codex: { label: 'Codex', icon: 'bi-openai', accent: '#10a37f', resume: ['resume'] },
 }
+
+const availableAgents = computed(() => Object.entries(AGENTS)
+  .filter(([id]) => capabilitiesStore.isListed(props.realm, id))
+  .map(([id, a]) => ({ id, label: a.label, icon: a.icon, accent: a.accent })))
 
 // Not pinned in the dock's launcher strip — these only show up (via dockApps
 // below) once an image/video is actually open, purely as an instance switcher.
@@ -472,10 +468,10 @@ const videoPlayerApp: AppDef = {
 }
 
 const dockApps = computed(() => {
-  // Apps the machine's owner/admin turned off (see the Settings app) aren't offered, nor an
-  // agent's on a machine without that agent installed, which doesn't list it.
-  const list = apps.filter((a) => a.id in AGENTS
-    ? capabilitiesStore.isListed(props.realm, a.id)
+  // Apps the machine's owner/admin turned off (see the Settings app) aren't offered, nor
+  // Agents on a machine without any agent installed, which lists none.
+  const list = apps.filter((a) => a.id === 'agents'
+    ? availableAgents.value.length > 0
     : capabilitiesStore.isEnabled(props.realm, a.id))
   if (windows.value.some((w) => w.appId === 'image-viewer')) list.push(imageViewerApp)
   if (windows.value.some((w) => w.appId === 'video-player')) list.push(videoPlayerApp)
@@ -506,8 +502,7 @@ const appComponents: Record<string, Component> = {
   'image-viewer': FilePreviewModal,
   'video-player': FilePreviewModal,
   'text-editor': TextEditor,
-  claude: AgentPanel,
-  codex: AgentPanel,
+  agents: AgentPanel,
 }
 
 function windowProps(win: { id: string; appId: string; props: Record<string, unknown> }) {
@@ -528,18 +523,12 @@ function windowProps(win: { id: string; appId: string; props: Record<string, unk
         exec: win.props.exec as ShellExec | undefined,
         focused,
       }
-    case 'claude':
-    case 'codex': {
-      const app = apps.find((a) => a.id === win.appId)!
+    case 'agents':
       return {
         realm: props.realm,
         focused,
-        agent: win.appId,
-        label: app.label,
-        icon: app.icon,
-        accent: AGENTS[win.appId]!.accent,
+        agents: availableAgents.value,
       }
-    }
     case 'resource-monitor':
       return {
         realm: props.realm,
@@ -644,7 +633,7 @@ function onResumeAgent(agent: string, dir: string, sessionId?: string) {
   const terminalApp = apps.find((a) => a.id === 'terminal')!
   openWindow({
     appId: terminalApp.id,
-    title: apps.find((a) => a.id === agent)?.label ?? agent,
+    title: AGENTS[agent]?.label ?? agent,
     icon: terminalApp.icon,
     iconColor: terminalApp.iconColor,
     iconBg: terminalApp.iconBg,
@@ -807,7 +796,7 @@ onUnmounted(() => {
           :focused="focusedId === win.id"
           :mobile="isMobile"
           :use-toolbar-titlebar="win.appId === 'files' || win.appId === 'terminal' || win.appId === 'text-editor'"
-          :dark-titlebar="win.appId === 'terminal' || win.appId === 'text-editor' || win.appId in AGENTS"
+          :dark-titlebar="win.appId === 'terminal' || win.appId === 'text-editor' || win.appId === 'agents'"
           :inset-left="insetLeft"
           :inset-right="insetRight"
           :inset-bottom="insetBottom"
