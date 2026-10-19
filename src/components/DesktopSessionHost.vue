@@ -445,10 +445,10 @@ const apps: AppDef[] = [
   },
 ]
 
-// Coding agents' apps (see AgentPanel), and how each resumes a session ("$1") in a terminal.
-const AGENTS: Record<string, { resume: string; accent: string }> = {
-  claude: { resume: 'claude --resume "$1"', accent: '#d97757' },
-  codex: { resume: 'codex resume "$1"', accent: '#10a37f' },
+// Coding agents' apps (see AgentPanel), and the arguments each resumes a session with.
+const AGENTS: Record<string, { resume: string[]; accent: string }> = {
+  claude: { resume: ['--resume'], accent: '#d97757' },
+  codex: { resume: ['resume'], accent: '#10a37f' },
 }
 
 // Not pinned in the dock's launcher strip — these only show up (via dockApps
@@ -639,8 +639,7 @@ function onOpenTextEditor(session: Session, entry: FileEntry) {
 }
 
 // Opens a terminal resuming agent's session, or starting a new one without a sessionId, in dir.
-// An interactive login shell, so the agent is found on the user's PATH: deskconnd's own, as a
-// systemd service, has neither ~/.local/bin nor nvm's bin, which ~/.bashrc adds.
+// The desktop finds the agent as the user's own shell does, on any platform.
 function onResumeAgent(agent: string, dir: string, sessionId?: string) {
   const terminalApp = apps.find((a) => a.id === 'terminal')!
   openWindow({
@@ -652,11 +651,7 @@ function onResumeAgent(agent: string, dir: string, sessionId?: string) {
     width: 760,
     height: 520,
     props: {
-      exec: {
-        command: 'bash',
-        args: sessionId ? ['-lic', `exec ${AGENTS[agent]!.resume}`, agent, sessionId] : ['-lic', `exec ${agent}`],
-        dir,
-      },
+      exec: { command: agent, args: sessionId ? [...AGENTS[agent]!.resume, sessionId] : [], dir },
     },
   }, maximizedContainerSize())
 }

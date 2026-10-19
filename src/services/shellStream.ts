@@ -33,7 +33,7 @@ const shellMsgData = 1
 // well under that so a quiet terminal isn't mistaken for a dead one.
 const SHELL_PING_INTERVAL_MS = 10_000
 
-/** Runs command (instead of an interactive bash) in dir (instead of home). */
+/** Runs command (instead of the machine's interactive shell) in dir (instead of home). */
 export interface ShellExec {
   command: string
   args?: string[]
