@@ -43,8 +43,8 @@ jobs:
         run: |
           cat > dist/config.js <<EOF
           window.__APP_CONFIG__ = {
-            WAMP_WT_URL: "${{ vars.VITE_WAMP_WT_URL }}",
-            WAMP_WT_CERT_URL: "${{ vars.VITE_WAMP_WT_CERT_URL }}",
+            WAMP_WT_URL: "${{ secrets.VITE_WAMP_WT_URL }}",
+            WAMP_WT_CERT_URL: "${{ secrets.VITE_WAMP_WT_CERT_URL }}",
             WAMP_REALM: "${{ secrets.VITE_WAMP_REALM }}",
             REGISTRATION_AUTHID: "${{ secrets.VITE_REGISTRATION_AUTHID }}"
           };
