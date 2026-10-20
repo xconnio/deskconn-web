@@ -99,10 +99,10 @@ const handleOnComplete = async (value: string) => {
   try {
     if (isLoginFlow.value) {
       await authStore.verifyLoginOtp(value)
-      router.push('/app')
+      router.push('/')
     } else {
       await authStore.verifyAccount(value)
-      router.push('/app')
+      router.push('/')
     }
   } catch (e: unknown) {
     console.error(e)
