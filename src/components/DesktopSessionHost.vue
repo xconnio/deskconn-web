@@ -469,10 +469,13 @@ const videoPlayerApp: AppDef = {
 
 const dockApps = computed(() => {
   // Apps the machine's owner/admin turned off (see the Settings app) aren't offered, nor
-  // Agents on a machine without any agent installed, which lists none.
+  // Agents on a machine without any agent installed, which lists none, nor Screenshot
+  // while remotecontrol-app (which registers it) isn't running.
   const list = apps.filter((a) => a.id === 'agents'
     ? availableAgents.value.length > 0
-    : capabilitiesStore.isEnabled(props.realm, a.id))
+    : a.id === 'screenshot'
+      ? capabilitiesStore.isListed(props.realm, a.id)
+      : capabilitiesStore.isEnabled(props.realm, a.id))
   if (windows.value.some((w) => w.appId === 'image-viewer')) list.push(imageViewerApp)
   if (windows.value.some((w) => w.appId === 'video-player')) list.push(videoPlayerApp)
   return list
