@@ -8,13 +8,10 @@ import { useAuthStore } from '../stores/auth'
 import { useSettingsStore } from '../stores/settings'
 
 const router = createRouter({
-  // Deliberately not import.meta.env.BASE_URL: that's '/app/', the build's
-  // asset prefix (keeps JS/CSS off the domain root, out of the marketing
-  // site's way) — unrelated to where these routes themselves should live.
   history: createWebHistory('/'),
   routes: [
     {
-      path: '/app',
+      path: '/',
       name: 'home',
       component: MachinesOverview,
       meta: { requiresAuth: true },
@@ -44,25 +41,25 @@ const router = createRouter({
       meta: { requiresGuest: true },
     },
     {
-      path: '/app/machine/:realm',
+      path: '/machine/:realm',
       name: 'desktop-launcher',
       component: () => import('../views/LauncherView.vue'),
       meta: { requiresAuth: true },
     },
     {
-      path: '/app/machine/:realm/files',
+      path: '/machine/:realm/files',
       name: 'desktop-files',
       component: () => import('../views/DesktopFilesView.vue'),
       meta: { requiresAuth: true },
     },
     {
-      path: '/app/machine/:realm/index/:category',
+      path: '/machine/:realm/index/:category',
       name: 'desktop-index',
       component: () => import('../views/IndexedFilesView.vue'),
       meta: { requiresAuth: true },
     },
     {
-      path: '/app/machine/:realm/windows',
+      path: '/machine/:realm/windows',
       name: 'desktop-windows',
       component: () => import('../views/WindowsOverviewView.vue'),
       meta: { requiresAuth: true },
@@ -77,11 +74,11 @@ const router = createRouter({
 // session) lands back on the picker too, instead of jumping into a machine.
 export function requestMachinesPicker() {
   useSettingsStore().clearLastRealm()
-  router.push('/app')
+  router.push('/')
 }
 
 // The auto-redirect below only ever fires once per page load (browser open
-// or refresh) — otherwise every later trip back to '/app' (pressing Back from
+// or refresh) — otherwise every later trip back to '/' (pressing Back from
 // a machine, clicking the Machines button) would immediately bounce right
 // back into whatever machine is currently the last-used one.
 let hasResolvedHome = false
@@ -93,15 +90,15 @@ export const machinesOverviewReturnRealm = ref<string | null>(null)
 router.beforeEach((to, from, next) => {
   const authStore = useAuthStore()
 
-  if (to.path === '/app') {
+  if (to.path === '/') {
     machinesOverviewReturnRealm.value = from.name === 'desktop-launcher' ? (from.params.realm as string) : null
   }
 
   if (to.meta.requiresAuth && !authStore.isAuthenticated) {
     next('/login')
   } else if (to.meta.requiresGuest && authStore.isAuthenticated) {
-    next('/app')
-  } else if (to.path === '/app' && authStore.isAuthenticated) {
+    next('/')
+  } else if (to.path === '/' && authStore.isAuthenticated) {
     // Skip the machine picker entirely when a last-used machine is known —
     // it becomes the landing page instead of MachinesOverview.
     const lastRealm = useSettingsStore().lastRealm

@@ -86,7 +86,7 @@ onMounted(async () => {
         router.currentRoute.value.path === '/login' ||
         router.currentRoute.value.path === '/register'
       ) {
-        router.push('/app')
+        router.push('/')
       }
     } else if (router.currentRoute.value.meta.requiresAuth) {
       // No stored principal, or it was expired/deleted (autoLogin already

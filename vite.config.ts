@@ -36,7 +36,7 @@ function appConfigDevPlugin(env: Record<string, string>): Plugin {
     name: 'app-config-dev',
     apply: 'serve',
     configureServer(server) {
-      server.middlewares.use('/app/config.js', (_req, res) => {
+      server.middlewares.use('/config.js', (_req, res) => {
         res.setHeader('Content-Type', 'application/javascript; charset=utf-8')
         res.end(`window.__APP_CONFIG__ = ${JSON.stringify(runtimeConfig(env))};`)
       })

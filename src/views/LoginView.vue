@@ -70,7 +70,7 @@ onMounted(() => {
     modalInstance = new Modal(loginSuccessModal.value)
     loginSuccessModal.value.addEventListener('hidden.bs.modal', () => {
       if (authStore.isAuthenticated) {
-        router.push('/app')
+        router.push('/')
       }
     })
   }
@@ -103,7 +103,7 @@ const handleLogin = async () => {
 
 const handleSuccessConfirm = () => {
   modalInstance?.hide()
-  router.push('/app')
+  router.push('/')
 }
 </script>
 
