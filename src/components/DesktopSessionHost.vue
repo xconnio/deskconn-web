@@ -27,7 +27,7 @@ import ScreenshotPanel from '@/components/ScreenshotPanel.vue'
 import FloatingWindow from '@/components/FloatingWindow.vue'
 import AppDock from '@/components/AppDock.vue'
 import DownloadToast from '@/components/DownloadToast.vue'
-import { loadCachedWallpaper, storeWallpaper } from '@/composables/useWallpaperCache'
+import { deleteWallpaper, loadCachedWallpaper, storeWallpaper } from '@/composables/useWallpaperCache'
 import { getFilePreviewType, type FilePreviewType } from '@/utils/fileTypes'
 import type { ShellExec } from '@/services/shellStream'
 import { downloadFile, type DownloadProgressState } from '@/utils/fileDownload'
@@ -254,21 +254,37 @@ async function fetchWallpaper() {
     if (!session) return
     const s = session
 
-    // deskconnd keys by caller session, so this session needs its own exchange —
+    // remotecontrol-app serves the wallpaper, with its own key exchange, while its screen
+    // app is registered. Older machines serve it from deskconnd.
+    if (!capabilitiesStore.byRealm[props.realm]) await capabilitiesStore.fetch(props.realm)
+    const keyExchange = capabilitiesStore.isListed(props.realm, 'screen')
+      ? capabilitiesStore.keyExchange(props.realm, 'screen')
+      : undefined
+    const prefix = keyExchange ? 'io.xconn.remotecontrol' : 'io.xconn.deskconn'
+
+    // The desktop keys by caller session, so this session needs its own exchange —
     // going through the realm-keyed shared cache would hand it (and then clobber)
     // the main session's keys, and the calls below would be rejected.
-    const keys = await encryptionStore.exchange(s)
+    const keys = await encryptionStore.exchange(s, keyExchange)
     const call = async <T,>(procedure: string): Promise<T> => {
       const encrypted = (await s.call(procedure)).args?.[0] as Uint8Array
       if (!encrypted?.length) throw new Error(`Empty response from ${procedure}`)
       return JSON.parse(new TextDecoder().decode(decryptPayload(encrypted, keys.decryptKey))) as T
     }
 
-    // Cheap checksum check — only download the full image when it has changed
-    const remoteChecksum = await call<string>('io.xconn.deskconn.wallpaper.checksum')
-    if (cached?.checksum === remoteChecksum) return
-
-    const wallpaper = await call<{ mime: string; data: string }>('io.xconn.deskconn.wallpaper.get')
+    // Cheap checksum check — only download the full image when it has changed. The
+    // machine not serving the wallpaper (anymore) drops the cached one.
+    let remoteChecksum: string
+    let wallpaper: { mime: string; data: string }
+    try {
+      remoteChecksum = await call<string>(`${prefix}.wallpaper.checksum`)
+      if (cached?.checksum === remoteChecksum) return
+      wallpaper = await call<{ mime: string; data: string }>(`${prefix}.wallpaper.get`)
+    } catch {
+      await deleteWallpaper(props.realm)
+      applyWallpaperUrl(null)
+      return
+    }
     if (!wallpaper.data) return
     const data = Uint8Array.from(atob(wallpaper.data), (c) => c.charCodeAt(0))
 
