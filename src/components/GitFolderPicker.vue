@@ -6,6 +6,7 @@ import type { EncryptionKeys } from '@/utils/encryption'
 import { createFileBrowser } from '@/utils/fileBrowse'
 import { formatDesktopError } from '@/utils/desktopError'
 import { useSettingsStore } from '@/stores/settings'
+import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import { detectPathSeparator, isPathWithinHome, joinPath, normalizeComparablePath, relativeSegments } from '@/utils/filePath'
 
 const props = defineProps<{
@@ -30,6 +31,7 @@ const selectedEntry = ref<FileEntry | null>(null)
 const fileName = ref(props.initialFileName ?? '')
 const loading = ref(false)
 const error = ref('')
+const confirmReplace = ref(false)
 
 const title = computed(() => ({
   'open-file': 'Open File',
@@ -143,6 +145,7 @@ function onEntryClick(entry: FileEntry) {
     return
   }
   selectedEntry.value = entry
+  if (props.mode === 'save-as' && !entry.is_dir) fileName.value = entry.name
 }
 
 function onEntryDblClick(entry: FileEntry) {
@@ -160,6 +163,11 @@ function confirm() {
     emit('confirm', selectedEntry.value!.path)
   } else if (props.mode === 'save-as') {
     const name = fileName.value.trim()
+    if (!confirmReplace.value && entries.value.some((e) => !e.is_dir && e.name === name)) {
+      confirmReplace.value = true
+      return
+    }
+    confirmReplace.value = false
     emit('confirm', joinPath(currentPath.value, name))
   } else {
     // open-folder: an explicitly selected subfolder wins, otherwise confirm
@@ -242,6 +250,15 @@ onMounted(() => load(props.initialPath ?? ''))
         </button>
       </div>
     </div>
+
+    <ConfirmDialog
+      :open="confirmReplace"
+      title="Replace file?"
+      :message="`&quot;${fileName.trim()}&quot; already exists. Saving will replace it.`"
+      confirm-label="Replace"
+      @confirm="confirm"
+      @cancel="confirmReplace = false"
+    />
   </div>
 </template>
 

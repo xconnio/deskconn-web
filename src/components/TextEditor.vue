@@ -988,7 +988,7 @@ onUnmounted(() => {
       :open="!!pendingClose"
       :title="closeConfirmTitle"
       :message="closeConfirmMessage"
-      confirm-label="Close"
+      confirm-label="Discard"
       @confirm="confirmPendingClose"
       @cancel="cancelPendingClose"
     />
@@ -1115,6 +1115,8 @@ onUnmounted(() => {
   min-height: 0;
   display: flex;
   overflow: hidden;
+  color-scheme: dark;
+  scrollbar-color: #3a3a3a #000000;
 }
 
 .editor-sidebar {
@@ -1215,6 +1217,9 @@ onUnmounted(() => {
 }
 .editor-gutter-inner {
   position: relative;
+  /* Room for 1–99 so the gutter doesn't jump at line 10; it still grows
+     with the text from 100 on. */
+  min-width: 2ch;
   white-space: pre;
   font-size: 0.85rem;
   line-height: 1.6;
