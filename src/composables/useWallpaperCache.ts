@@ -49,3 +49,16 @@ export async function storeWallpaper(realm: string, data: Uint8Array, mimeType: 
   }
   return URL.createObjectURL(blob)
 }
+
+export async function deleteWallpaper(realm: string): Promise<void> {
+  try {
+    const db = await openDB()
+    await new Promise<void>((resolve, reject) => {
+      const req = db.transaction(STORE, 'readwrite').objectStore(STORE).delete(realm)
+      req.onsuccess = () => resolve()
+      req.onerror = () => reject(req.error)
+    })
+  } catch {
+    // storage failure is non-fatal
+  }
+}
