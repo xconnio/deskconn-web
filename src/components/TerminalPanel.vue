@@ -269,7 +269,7 @@ async function isTabBusy(tab: TabState): Promise<boolean> {
   if (!tab.session || !tab.shellId) return false
   try {
     return await encryptedCall<boolean>(
-      tab.session, props.realm, 'io.xconn.deskconn.deskconnd.shell.isbusy', tab.shellId)
+      tab.session, props.realm, 'io.xconn.deskconn.shell.isbusy', tab.shellId)
   } catch (err) {
     // Fails open (no warning) rather than blocking the close — but log it,
     // since a stale deskconnd without this RPC fails silently the same way.

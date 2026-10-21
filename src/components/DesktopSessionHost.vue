@@ -247,11 +247,11 @@ async function fetchWallpaper() {
 
     // Cheap checksum check — only download the full image when it has changed
     const remoteChecksum = await encryptedCall<string>(
-      session, props.realm, 'io.xconn.deskconn.deskconnd.wallpaper.checksum')
+      session, props.realm, 'io.xconn.deskconn.wallpaper.checksum')
     if (cached?.checksum === remoteChecksum) return
 
     const wallpaper = await encryptedCall<{ mime: string; data: string }>(
-      session, props.realm, 'io.xconn.deskconn.deskconnd.wallpaper.get')
+      session, props.realm, 'io.xconn.deskconn.wallpaper.get')
     if (!wallpaper.data) return
     const data = Uint8Array.from(atob(wallpaper.data), (c) => c.charCodeAt(0))
 
@@ -275,7 +275,7 @@ const isConnecting = ref(true)
 // same full-screen treatment.
 const isDisconnected = ref(false)
 
-// From io.xconn.deskconn.deskconnd.device.is_desktop — false on a headless
+// From io.xconn.deskconn.device.is_desktop — false on a headless
 // machine, which never registers display-only RPCs (screenshot, brightness,
 // wallpaper) on the deskconnd side. Defaults true so the icon isn't hidden
 // then flashed back in on every ordinary desktop.
@@ -295,13 +295,13 @@ async function connectSession(): Promise<boolean> {
   try {
     const session = await sessionCacheStore.acquire(props.realm)
     if (!session) return false
-    await session.call('io.xconn.deskconn.deskconnd.ping')
+    await session.call('io.xconn.deskconn.ping')
 
     // Older deskconnd builds don't register this RPC at all — NoSuchProcedure
     // there isn't "not a desktop", it's "unknown", so assume desktop rather
     // than hiding screenshot.
     try {
-      const isDesktopResult = await session.call('io.xconn.deskconn.deskconnd.device.is_desktop')
+      const isDesktopResult = await session.call('io.xconn.deskconn.device.is_desktop')
       isDesktop.value = !!isDesktopResult.args?.[0]
     } catch {
       isDesktop.value = true

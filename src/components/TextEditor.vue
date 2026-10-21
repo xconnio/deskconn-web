@@ -29,7 +29,7 @@ import { fetchGitOriginal } from '@/utils/git'
 import { uploadFileToPath } from '@/utils/fileUpload'
 import { computeLineDiff, type LineDiffMap } from '@/utils/lineDiff'
 
-const procedureFileEdit = 'io.xconn.deskconn.deskconnd.file.edit'
+const procedureFileEdit = 'io.xconn.deskconn.file.edit'
 const MAX_EDIT_SIZE = 10 * 1024 * 1024
 
 type TextEntry = { path: string; name: string; size: number }

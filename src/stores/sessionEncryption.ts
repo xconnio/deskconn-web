@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import type { Session } from 'xconn'
 import { createX25519KeyPair, deriveSessionKeys, type EncryptionKeys } from '@/utils/encryption'
 
-const procedureKeyExchange = 'io.xconn.deskconn.deskconnd.key.exchange'
+const procedureKeyExchange = 'io.xconn.deskconn.key.exchange'
 
 // One key per realm session and key exchange (backend enforces this too, see
 // d.keys) — shared so no window redoes the handshake behind another's back and

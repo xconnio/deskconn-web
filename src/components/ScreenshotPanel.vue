@@ -4,13 +4,16 @@ import { ApplicationError } from 'xconn'
 import { useSessionCacheStore } from '@/stores/sessionCache'
 import { useCapabilitiesStore } from '@/stores/capabilities'
 import { encryptedCall } from '@/utils/encryptedCall'
-import { floatingWindowActionsKey, floatingWindowMenuKey } from '@/composables/floatingWindowToolbar'
+import {
+  floatingWindowActionsKey,
+  floatingWindowMenuKey,
+} from '@/composables/floatingWindowToolbar'
 import { downloadUrl } from '@/utils/download'
 import { formatDesktopError, isDesktopOfflineError } from '@/utils/desktopError'
 
 const props = defineProps<{ realm: string; focused?: boolean }>()
 
-const procedureScreenshot = 'io.xconn.deskconn.deskconnd.screenshot'
+const procedureScreenshot = 'io.xconn.remotecontrol.screenshot'
 
 const sessionCacheStore = useSessionCacheStore()
 const capabilitiesStore = useCapabilitiesStore()
@@ -103,7 +106,12 @@ async function capture() {
     const keyExchange = capabilitiesStore.keyExchange(props.realm, 'screenshot')
     if (keyExchange) {
       const shot = await encryptedCall<{ mime: string; data: string }>(
-        session, props.realm, procedureScreenshot, undefined, keyExchange)
+        session,
+        props.realm,
+        procedureScreenshot,
+        undefined,
+        keyExchange,
+      )
       setImageUrl(`data:${shot.mime};base64,${shot.data}`, false)
     } else {
       const result = await session.call(procedureScreenshot)
@@ -327,7 +335,9 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
 }
 
 .sc-action-btn:hover {
@@ -406,7 +416,9 @@ onUnmounted(() => {
   font-size: 0.82rem;
   cursor: pointer;
   font-family: inherit;
-  transition: background 0.13s, border-color 0.13s;
+  transition:
+    background 0.13s,
+    border-color 0.13s;
 }
 
 .sc-retry-btn:hover {
@@ -447,7 +459,9 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   border-radius: 6px;
-  transition: background 0.12s, color 0.12s;
+  transition:
+    background 0.12s,
+    color 0.12s;
 }
 
 .sc-copy-btn:hover {
