@@ -176,8 +176,8 @@ function upgradable(realm: string, routed: Session): Session {
   const session = new Proxy(routed, {
     get(_, prop) {
       if (prop in overrides) return overrides[prop]
-      // openStream is a WebTransport-only feature, so it always stays routed.
-      const target = prop === 'openStream' ? routed : current
+      // openStream/openSession are WebTransport-only features, so they always stay routed.
+      const target = prop === 'openStream' || prop === 'openSession' ? routed : current
       const value = Reflect.get(target, prop)
       return typeof value === 'function' ? value.bind(target) : value
     },

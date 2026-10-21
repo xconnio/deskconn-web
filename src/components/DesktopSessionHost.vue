@@ -9,11 +9,12 @@ import { useMachinesStore } from '@/stores/machines'
 import { useSettingsStore } from '@/stores/settings'
 import { useAuthStore } from '@/stores/auth'
 import { useSessionCacheStore } from '@/stores/sessionCache'
-import { encryptedCall } from '@/utils/encryptedCall'
 import { useDesktopSessionsStore } from '@/stores/desktopSessions'
 import { useMachinesOverviewStore } from '@/stores/machinesOverview'
 import { useWindowsOverviewStore } from '@/stores/windowsOverview'
 import { useCapabilitiesStore } from '@/stores/capabilities'
+import { useSessionEncryptionStore } from '@/stores/sessionEncryption'
+import { decryptPayload } from '@/utils/encryption'
 import EmbeddedDesktopFiles from '@/components/EmbeddedDesktopFiles.vue'
 import TerminalPanel from '@/components/TerminalPanel.vue'
 import ResourceMonitor from '@/components/ResourceMonitor.vue'
@@ -40,6 +41,7 @@ const desktopSessionsStore = useDesktopSessionsStore()
 const machinesOverviewStore = useMachinesOverviewStore()
 const windowsOverviewStore = useWindowsOverviewStore()
 const capabilitiesStore = useCapabilitiesStore()
+const encryptionStore = useSessionEncryptionStore()
 
 const desktopName = computed(() => machinesStore.desktops.find((d) => d.realm === props.realm)?.name ?? props.realm)
 
@@ -238,20 +240,32 @@ async function fetchWallpaper() {
 
   // Own throwaway session, deliberately not the shared/cached one: wallpaper.get can
   // return a multi-MB image that exceeds the transport's single-frame size limit, which
-  // kills the whole stream it was sent on. Isolating it here means that failure can only
-  // cost the wallpaper, not the desktop session everything else (terminal, files, ping) relies on.
-  let session: Session | false | null = null
+  // kills the whole stream it was sent on. Opened as its own stream on the shared
+  // connection, so that failure can only cost the wallpaper, not the desktop session
+  // everything else (terminal, files, ping) relies on.
+  let session: Session | null = null
   try {
-    session = await authStore.shellWamp(props.realm)
+    const shared = await sessionCacheStore.acquire(props.realm)
+    if (!shared) return
+    session = await authStore.openSession(props.realm, shared)
     if (!session) return
+    const s = session
+
+    // deskconnd keys by caller session, so this session needs its own exchange —
+    // going through the realm-keyed shared cache would hand it (and then clobber)
+    // the main session's keys, and the calls below would be rejected.
+    const keys = await encryptionStore.exchange(s)
+    const call = async <T,>(procedure: string): Promise<T> => {
+      const encrypted = (await s.call(procedure)).args?.[0] as Uint8Array
+      if (!encrypted?.length) throw new Error(`Empty response from ${procedure}`)
+      return JSON.parse(new TextDecoder().decode(decryptPayload(encrypted, keys.decryptKey))) as T
+    }
 
     // Cheap checksum check — only download the full image when it has changed
-    const remoteChecksum = await encryptedCall<string>(
-      session, props.realm, 'io.xconn.deskconn.wallpaper.checksum')
+    const remoteChecksum = await call<string>('io.xconn.deskconn.wallpaper.checksum')
     if (cached?.checksum === remoteChecksum) return
 
-    const wallpaper = await encryptedCall<{ mime: string; data: string }>(
-      session, props.realm, 'io.xconn.deskconn.wallpaper.get')
+    const wallpaper = await call<{ mime: string; data: string }>('io.xconn.deskconn.wallpaper.get')
     if (!wallpaper.data) return
     const data = Uint8Array.from(atob(wallpaper.data), (c) => c.charCodeAt(0))
 
