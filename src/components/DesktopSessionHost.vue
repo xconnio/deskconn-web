@@ -27,6 +27,7 @@ import TextEditor from '@/components/TextEditor.vue'
 import ScreenshotPanel from '@/components/ScreenshotPanel.vue'
 import FloatingWindow from '@/components/FloatingWindow.vue'
 import AppDock from '@/components/AppDock.vue'
+import ManifestAppPanel from '@/components/ManifestAppPanel.vue'
 import DownloadToast from '@/components/DownloadToast.vue'
 import { deleteWallpaper, loadCachedWallpaper, storeWallpaper } from '@/composables/useWallpaperCache'
 import { getFilePreviewType, type FilePreviewType } from '@/utils/fileTypes'
@@ -542,6 +543,12 @@ const dockApps = computed(() => {
     : a.id === 'screenshot'
       ? capabilitiesStore.isListed(props.realm, a.id)
       : capabilitiesStore.isEnabled(props.realm, a.id))
+  // Manifest apps the machine has enabled, rendered by ManifestAppPanel.
+  for (const c of capabilitiesStore.byRealm[props.realm] ?? []) {
+    if (c.manifest && c.enabled) {
+      list.push({ id: `manifest:${c.id}`, label: c.name, icon: 'bi-grid', iconColor: '#ffffff', iconBg: '#16a34a' })
+    }
+  }
   if (windows.value.some((w) => w.appId === 'image-viewer')) list.push(imageViewerApp)
   if (windows.value.some((w) => w.appId === 'video-player')) list.push(videoPlayerApp)
   return list
@@ -574,8 +581,13 @@ const appComponents: Record<string, Component> = {
   agents: AgentPanel,
 }
 
+function appComponent(appId: string): Component | undefined {
+  return appId.startsWith('manifest:') ? ManifestAppPanel : appComponents[appId]
+}
+
 function windowProps(win: { id: string; appId: string; props: Record<string, unknown> }) {
   const focused = focusedId.value === win.id
+  if (win.appId.startsWith('manifest:')) return { realm: props.realm, appId: win.appId.slice('manifest:'.length) }
   switch (win.appId) {
     case 'files':
       return {
@@ -790,7 +802,7 @@ function onActivateWindow(id: string) {
 
 function handleLaunch(appId: string) {
   if (isDisconnected.value) return
-  const app = apps.find((a) => a.id === appId)
+  const app = dockApps.value.find((a) => a.id === appId)
   if (!app) return
   launchApp(app)
   if (props.dockElsewhere) openLauncher(props.realm)
@@ -980,7 +992,7 @@ onUnmounted(() => {
           <Teleport :to="windowPreviewTarget(win.id)" :disabled="!windowPreviewTarget(win.id)">
             <div :style="windowPreviewStyle(win)">
               <component
-                :is="appComponents[win.appId]"
+                :is="appComponent(win.appId)"
                 :ref="windowRef(win.id)"
                 v-bind="windowProps(win)"
                 @close="closeWindowSafely(win.id)"
