@@ -114,7 +114,7 @@ async function fetchInfo() {
       error.value = 'No session available'
       return
     }
-    info.value = await encryptedCall<DeviceInfo>(session, props.realm, 'io.xconn.deskconn.deskconnd.machine.info')
+    info.value = await encryptedCall<DeviceInfo>(session, props.realm, 'io.xconn.deskconn.machine.info')
     error.value = null
 
     pushHistory(cpuHistory.value, cpuOverall.value)
@@ -138,7 +138,7 @@ async function fetchProcesses() {
     const session = await sessionCacheStore.acquire(props.realm)
     if (!session) return
     processList.value = await encryptedCall<ProcessInfo[]>(
-      session, props.realm, 'io.xconn.deskconn.deskconnd.process.list')
+      session, props.realm, 'io.xconn.deskconn.process.list')
   } catch (e) {
     if (isDesktopOfflineError(e)) sessionCacheStore.reportUnreachable(props.realm)
     actionError.value = formatDesktopError(e)
@@ -154,7 +154,7 @@ async function ensureIcon(iconName: string) {
     const session = await sessionCacheStore.acquire(props.realm)
     if (!session) return
     const parsed = await encryptedCall<{ mime: string; data: string }>(
-      session, props.realm, 'io.xconn.deskconn.deskconnd.app.icon', iconName)
+      session, props.realm, 'io.xconn.deskconn.app.icon', iconName)
     iconCache.value.set(iconName, `data:${parsed.mime};base64,${parsed.data}`)
   } catch {
     iconFailed.add(iconName)
@@ -165,7 +165,7 @@ async function fetchApps() {
   try {
     const session = await sessionCacheStore.acquire(props.realm)
     if (!session) return
-    appList.value = await encryptedCall<AppInfo[]>(session, props.realm, 'io.xconn.deskconn.deskconnd.app.list')
+    appList.value = await encryptedCall<AppInfo[]>(session, props.realm, 'io.xconn.deskconn.app.list')
     for (const app of appList.value) {
       if (app.icon_name) void ensureIcon(app.icon_name)
     }
@@ -180,7 +180,7 @@ async function signalPids(pids: number[], signal: 'term' | 'kill') {
   try {
     const session = await sessionCacheStore.acquire(props.realm)
     if (!session) return
-    await encryptedCall(session, props.realm, 'io.xconn.deskconn.deskconnd.process.signal', { pids, signal })
+    await encryptedCall(session, props.realm, 'io.xconn.deskconn.process.signal', { pids, signal })
     actionError.value = null
   } catch (e) {
     if (isDesktopOfflineError(e)) sessionCacheStore.reportUnreachable(props.realm)

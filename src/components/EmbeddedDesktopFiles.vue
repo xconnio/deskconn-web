@@ -31,11 +31,11 @@ import {
   relativeSegments,
 } from '@/utils/filePath'
 
-const procedureFileRename = 'io.xconn.deskconn.deskconnd.file.rename'
-const procedureFileDelete = 'io.xconn.deskconn.deskconnd.file.delete'
-const procedureFileCopy = 'io.xconn.deskconn.deskconnd.file.copy'
-const procedureFileSearch = 'io.xconn.deskconn.deskconnd.file.search'
-const procedureFileThumbnails = 'io.xconn.deskconn.deskconnd.file.thumbnails'
+const procedureFileRename = 'io.xconn.deskconn.file.rename'
+const procedureFileDelete = 'io.xconn.deskconn.file.delete'
+const procedureFileCopy = 'io.xconn.deskconn.file.copy'
+const procedureFileSearch = 'io.xconn.deskconn.file.search'
+const procedureFileThumbnails = 'io.xconn.deskconn.file.thumbnails'
 // Small batches so generated thumbnails appear one batch at a time, not a page at a time.
 const THUMBNAIL_BATCH = 8
 // Images, videos and PDFs: what deskconnd makes thumbnails of.

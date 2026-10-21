@@ -1,5 +1,5 @@
 /**
- * Client side of `io.xconn.deskconn.deskconnd.file.cat` (see filecat.go) — simpler
+ * Client side of `io.xconn.deskconn.file.cat` (see filecat.go) — simpler
  * than file.download: raw encrypted chunks stream straight through, no framing.
  * The path goes as an encrypted JSON string and each chunk comes back encrypted,
  * both with the realm's key-exchange keys.
@@ -9,7 +9,7 @@ import { useSessionEncryptionStore } from '@/stores/sessionEncryption'
 import { encryptPayload, decryptPayload } from '@/utils/encryption'
 import { isKeysRejectedError } from '@/utils/desktopError'
 
-const procedureFileCat = 'io.xconn.deskconn.deskconnd.file.cat'
+const procedureFileCat = 'io.xconn.deskconn.file.cat'
 
 type CallResult = { args?: unknown[] }
 

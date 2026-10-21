@@ -19,7 +19,7 @@ import {
   isNoSuchProcedureException,
 } from '@/utils/desktopError'
 
-const procedureIndexQuery  = 'io.xconn.deskconn.deskconnd.index.query'
+const procedureIndexQuery  = 'io.xconn.deskconn.index.query'
 
 interface IndexEntry {
   path:      string
