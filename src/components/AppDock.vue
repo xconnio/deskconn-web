@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import type { AppWindow } from '@/composables/useWindowManager'
 import { requestMachinesPicker } from '@/router/index'
-import { openWindowsOverview } from '@/router/navigation'
+import { openLauncher, openWindowsOverview } from '@/router/navigation'
 import { useAccountPanelStore } from '@/stores/accountPanel'
 import { useSessionCacheStore } from '@/stores/sessionCache'
 
@@ -47,6 +48,19 @@ const emit = defineEmits<{
 }>()
 
 const accountPanelStore = useAccountPanelStore()
+const route = useRoute()
+
+// The overview buttons toggle: pressed again while already on that overview,
+// they go back to this machine's desktop instead.
+function toggleMachines() {
+  if (route.name === 'home') openLauncher(props.realm, props.desktopName)
+  else requestMachinesPicker()
+}
+
+function toggleWindowsOverview() {
+  if (route.name === 'desktop-windows') openLauncher(props.realm, props.desktopName)
+  else openWindowsOverview(props.realm)
+}
 
 const sessionCacheStore = useSessionCacheStore()
 const connectionMode = computed(() =>
@@ -174,7 +188,7 @@ const TOOLTIP_GAP = 8
 
 const STATIC_TOOLTIP_LABELS: Record<string, string> = {
   machines: 'Machines',
-  'windows-overview': 'Show all windows',
+  'windows-overview': 'Apps',
   profile: 'Profile',
 }
 
@@ -369,7 +383,7 @@ onUnmounted(() => {
           <button
             class="dock-icon dock-icon-machines"
             aria-label="Machines"
-            @click="hideTooltip(); requestMachinesPicker()"
+            @click="hideTooltip(); toggleMachines()"
             @mouseenter="showTooltip('machines')"
             @mouseleave="hideTooltip"
           >
@@ -383,8 +397,8 @@ onUnmounted(() => {
         >
           <button
             class="dock-icon dock-icon-machines"
-            aria-label="Show all windows"
-            @click="openWindowsOverview(realm)"
+            aria-label="Apps"
+            @click="toggleWindowsOverview()"
             @mouseenter="showTooltip('windows-overview')"
             @mouseleave="hideTooltip"
           >
@@ -493,7 +507,7 @@ onUnmounted(() => {
            below) and open one at a time, so there's no window switcher here —
            this bar is just the machine/profile switcher. -->
       <template v-else>
-        <button class="mobile-nav-item" aria-label="Machines" @click="requestMachinesPicker()">
+        <button class="mobile-nav-item" aria-label="Machines" @click="toggleMachines()">
           <i class="bi bi-window-stack"></i>
           <span class="mobile-nav-label">Machine</span>
         </button>
