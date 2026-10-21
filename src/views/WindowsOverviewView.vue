@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useDesktopSessionsStore } from '@/stores/desktopSessions'
 import { useWindowsOverviewStore } from '@/stores/windowsOverview'
 import OverviewGrid from '@/components/OverviewGrid.vue'
+import ConfirmDialog from '@/components/ConfirmDialog.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -48,6 +49,21 @@ function onSelect(entry: WindowEntry) {
   goBack()
 }
 
+// An app that needs to confirm closing (busy terminal, unsaved edits) would
+// show its dialog inside the window, which is only a tiny preview here — so
+// it asks through this page's own dialog instead.
+const pendingConfirm = ref<{ title: string; message: string; resolve: (ok: boolean) => void } | null>(null)
+
+function answerConfirm(ok: boolean) {
+  pendingConfirm.value?.resolve(ok)
+  pendingConfirm.value = null
+}
+
+function onClose(entry: WindowEntry) {
+  void manager.value.closeWindowSafely(entry.id, (title, message) =>
+    new Promise<boolean>((resolve) => { pendingConfirm.value = { title, message, resolve } }))
+}
+
 // Registers this card's slot for the owning DesktopSessionHost to teleport
 // that window's live content into — same pattern as MachinesOverview's
 // per-realm preview, keyed by window id instead of realm.
@@ -63,8 +79,10 @@ function setPreviewTarget(windowId: string, el: Element | null) {
     :entries="entries"
     :active-id="manager.focusedId.value"
     show-back
+    closable
     empty-message="No apps open"
     @select="onSelect"
+    @close="onClose"
     @back="goBack"
   >
     <template #preview="{ entry }">
@@ -82,9 +100,28 @@ function setPreviewTarget(windowId: string, el: Element | null) {
       <span v-if="entry.minimized" class="overview-minimized">Minimized</span>
     </template>
   </OverviewGrid>
+
+  <div v-if="pendingConfirm" class="confirm-host">
+    <ConfirmDialog
+      open
+      :title="pendingConfirm.title"
+      :message="pendingConfirm.message"
+      confirm-label="Close"
+      @confirm="answerConfirm(true)"
+      @cancel="answerConfirm(false)"
+    />
+  </div>
 </template>
 
 <style scoped>
+/* ConfirmDialog's overlay fills its nearest positioned ancestor — this makes
+   that the whole viewport. */
+.confirm-host {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+}
+
 .preview-slot {
   position: absolute;
   inset: 0;

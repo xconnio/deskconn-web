@@ -170,7 +170,9 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown, true))
   grid-template-columns: repeat(auto-fill, 220px);
   gap: 1.75rem;
   align-content: flex-start;
-  padding: 0 3rem 2.5rem;
+  /* Clears the close (x) button, which pokes 8px above each card — with no
+     top padding the first row's button tucks under the sticky header. */
+  padding: 0.75rem 3rem 2.5rem;
 }
 
 .overview-card {
