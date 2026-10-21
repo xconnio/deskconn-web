@@ -9,6 +9,7 @@ import { useSessionCacheStore } from '@/stores/sessionCache'
 import { encryptedCall } from '@/utils/encryptedCall'
 import { floatingWindowToolbarKey } from '@/composables/floatingWindowToolbar'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import type { CloseConfirm } from '@/composables/useWindowManager'
 import TabStrip from '@/components/TabStrip.vue'
 import { openShell, type ShellExec, type ShellHandle } from '@/services/shellStream'
 import { isDataChannelClosedError, formatDesktopError } from '@/utils/desktopError'
@@ -287,6 +288,7 @@ type PendingClose =
   | { kind: 'window'; resolve: (ok: boolean) => void }
 
 const pendingClose = ref<PendingClose | null>(null)
+const runningProcessMessage = 'It has a running process. Closing it may end that process.'
 const closeConfirmTitle = computed(() => {
   const p = pendingClose.value
   if (!p) return ''
@@ -304,9 +306,10 @@ async function requestCloseTab(id: number) {
 }
 
 // Called by DesktopSessionHost before it unmounts this window.
-async function requestClose(): Promise<boolean> {
+async function requestClose(confirm?: CloseConfirm): Promise<boolean> {
   const busy = await Promise.all(tabs.value.map((t) => isTabBusy(t)))
   if (!busy.some(Boolean)) return true
+  if (confirm) return confirm('Close this terminal window?', runningProcessMessage)
   return new Promise<boolean>((resolve) => {
     pendingClose.value = { kind: 'window', resolve }
   })
@@ -906,7 +909,7 @@ watch(() => props.focused, (focused) => {
     <ConfirmDialog
       :open="!!pendingClose"
       :title="closeConfirmTitle"
-      message="It has a running process. Closing it may end that process."
+      :message="runningProcessMessage"
       confirm-label="Close"
       @confirm="confirmPendingClose"
       @cancel="cancelPendingClose"

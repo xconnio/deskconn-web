@@ -69,8 +69,12 @@ interface HomeBounds {
 /** Some embedded apps (Terminal) need an async say over whether their window
  * may actually close — e.g. warning before killing a running process — which
  * a synchronous `dirty` flag can't express. They opt in via defineExpose. */
+export type CloseConfirm = (title: string, message: string) => Promise<boolean>
+
 export interface CloseableWindowInstance {
-  requestClose?: () => Promise<boolean>
+  /** Given confirm, asks through it instead of the app's own in-window
+   * dialog — for a caller showing the window too small to answer one. */
+  requestClose?: (confirm?: CloseConfirm) => Promise<boolean>
 }
 
 export function useWindowManager() {
@@ -170,8 +174,8 @@ export function useWindowManager() {
     else instances.delete(id)
   }
 
-  async function closeWindowSafely(id: string) {
-    const canClose = await instances.get(id)?.requestClose?.()
+  async function closeWindowSafely(id: string, confirm?: CloseConfirm) {
+    const canClose = await instances.get(id)?.requestClose?.(confirm)
     if (canClose === false) return
     closeWindow(id)
   }

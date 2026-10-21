@@ -13,6 +13,7 @@ import { ref, reactive, computed, inject, watch, nextTick, onMounted, onUnmounte
 import { type Session } from 'xconn'
 import { floatingWindowActionsKey, floatingWindowToolbarKey } from '@/composables/floatingWindowToolbar'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import type { CloseConfirm } from '@/composables/useWindowManager'
 import EditorFileTree from '@/components/EditorFileTree.vue'
 import GitFolderPicker from '@/components/GitFolderPicker.vue'
 import TabStrip from '@/components/TabStrip.vue'
@@ -300,9 +301,12 @@ const closeConfirmMessage = computed(() => {
   const p = pendingClose.value
   if (!p) return ''
   if (p.kind === 'tab') return `${tabLabel(p.tab)} has unsaved changes. Close this tab anyway?`
+  return windowCloseMessage()
+})
+function windowCloseMessage() {
   const n = tabs.value.filter(isDirty).length
   return `${n} file${n === 1 ? '' : 's'} have unsaved changes. Close this window anyway?`
-})
+}
 
 function closeTabImmediate(id: number) {
   loadControllers.get(id)?.abort()
@@ -329,8 +333,9 @@ function requestCloseTab(id: number, e?: Event) {
 }
 
 // Called by DesktopSessionHost before it unmounts this window.
-async function requestClose(): Promise<boolean> {
+async function requestClose(confirm?: CloseConfirm): Promise<boolean> {
   if (!anyDirty.value) return true
+  if (confirm) return confirm('Unsaved changes', windowCloseMessage())
   return new Promise<boolean>((resolve) => {
     pendingClose.value = { kind: 'window', resolve }
   })
