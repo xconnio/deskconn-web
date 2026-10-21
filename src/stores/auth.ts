@@ -311,16 +311,26 @@ export const useAuthStore = defineStore('auth', () => {
     return await authService.shellDesktop(creds.authId, creds.privateKey, realm)
   }
 
-  async function shellWebRTC(realm: string, routed: WampSession) {
-    if (standalone.value) {
-      return authService.shellWebRTCDesktop(standaloneAuthenticator(standalone.value), realm, routed)
-    }
+  async function desktopAuthenticator() {
+    if (standalone.value) return standaloneAuthenticator(standalone.value)
 
     const creds = await getDeviceCreds()
-    if (!creds) return false
+    if (!creds) return null
+    return new CryptoSignAuthenticator(creds.authId, creds.privateKey, {})
+  }
 
-    const authenticator = new CryptoSignAuthenticator(creds.authId, creds.privateKey, {})
+  async function shellWebRTC(realm: string, routed: WampSession) {
+    const authenticator = await desktopAuthenticator()
+    if (!authenticator) return false
     return await authService.shellWebRTCDesktop(authenticator, realm, routed)
+  }
+
+  // An extra WAMP session as a new stream on the routed session's WebTransport
+  // connection; its leave() ends only that stream, not the connection.
+  async function openSession(realm: string, routed: WampSession) {
+    const authenticator = await desktopAuthenticator()
+    if (!authenticator) return null
+    return await routed.openSession(realm, authenticator)
   }
 
   // Drops a principal key that's no longer good (expired/deleted/rejected)
@@ -477,5 +487,6 @@ export const useAuthStore = defineStore('auth', () => {
     updateProfile,
     shellWamp,
     shellWebRTC,
+    openSession,
   }
 })
