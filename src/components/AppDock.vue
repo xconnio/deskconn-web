@@ -188,7 +188,7 @@ const TOOLTIP_GAP = 8
 
 const STATIC_TOOLTIP_LABELS: Record<string, string> = {
   machines: 'Machines',
-  'windows-overview': 'Show all windows',
+  'windows-overview': 'Apps',
   profile: 'Profile',
 }
 
@@ -397,7 +397,7 @@ onUnmounted(() => {
         >
           <button
             class="dock-icon dock-icon-machines"
-            aria-label="Show all windows"
+            aria-label="Apps"
             @click="toggleWindowsOverview()"
             @mouseenter="showTooltip('windows-overview')"
             @mouseleave="hideTooltip"
