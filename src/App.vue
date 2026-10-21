@@ -25,11 +25,20 @@ const activeRealm = computed(() =>
   route.name === 'desktop-launcher' ? (route.params.realm as string) : null,
 )
 
+// The machine whose dock the overview pages show: Open Windows' own, or on
+// Machines the one it was opened from — none on a fresh Machines landing.
+const dockRealm = computed(() => {
+  if (route.name === 'desktop-windows') return route.params.realm as string
+  if (route.name === 'home') return machinesOverviewReturnRealm.value
+  return null
+})
+
 const renderedRealms = computed(() => {
   const set = new Set(desktopSessionsStore.knownRealms)
   if (activeRealm.value) set.add(activeRealm.value)
+  if (dockRealm.value) set.add(dockRealm.value)
   return [...set].filter(
-    (r) => r === activeRealm.value || desktopSessionsStore.hasOpenWindows(r),
+    (r) => r === activeRealm.value || r === dockRealm.value || desktopSessionsStore.hasOpenWindows(r),
   )
 })
 
@@ -115,11 +124,13 @@ onUnmounted(() => {
     <!-- Main content -->
     <main class="main-content" :class="{ 'is-desktop': hasDarkBackground }">
       <RouterView />
+      <div id="overview-dock"></div>
       <DesktopSessionHost
         v-for="r in renderedRealms"
         :key="r"
         :realm="r"
         :active="r === activeRealm"
+        :dock-elsewhere="r === dockRealm"
         v-show="r === activeRealm"
       />
     </main>
@@ -188,6 +199,25 @@ onUnmounted(() => {
 .main-content.is-desktop {
   background: #000000;
 }
+
+/* An overview page's dock (see dockRealm) floats over the page; the padding
+   keeps it from covering the page's own content. */
+#overview-dock {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  pointer-events: none;
+}
+
+/* The dock's own background is translucent — over the overview's navy it
+   tints blue, so it's made solid here, the same color as on the desktop. */
+#overview-dock .dock {
+  background: rgb(20, 20, 22);
+}
+
+.main-content:has(> #overview-dock .dock-bottom) { padding-bottom: 4.5rem; }
+.main-content:has(> #overview-dock .dock-left) { padding-left: 4.5rem; }
+.main-content:has(> #overview-dock .dock-right) { padding-right: 4.5rem; }
 
 @media (max-width: 767px) {
   .global-account-btn {

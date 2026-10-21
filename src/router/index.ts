@@ -91,7 +91,8 @@ router.beforeEach((to, from, next) => {
   const authStore = useAuthStore()
 
   if (to.path === '/') {
-    machinesOverviewReturnRealm.value = from.name === 'desktop-launcher' ? (from.params.realm as string) : null
+    machinesOverviewReturnRealm.value =
+      from.name === 'desktop-launcher' || from.name === 'desktop-windows' ? (from.params.realm as string) : null
   }
 
   if (to.meta.requiresAuth && !authStore.isAuthenticated) {

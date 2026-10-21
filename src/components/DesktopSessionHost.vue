@@ -3,6 +3,7 @@ import { ref, onMounted, onUnmounted, computed, watch, nextTick, markRaw, type C
 import { type Session } from 'xconn'
 import type { FileEntry } from '@/types'
 import { requestMachinesPicker } from '@/router/index'
+import { openLauncher } from '@/router/navigation'
 import type { AppWindow, CloseableWindowInstance } from '@/composables/useWindowManager'
 
 import { useMachinesStore } from '@/stores/machines'
@@ -31,7 +32,9 @@ import { getFilePreviewType, type FilePreviewType } from '@/utils/fileTypes'
 import type { ShellExec } from '@/services/shellStream'
 import { downloadFile, type DownloadProgressState } from '@/utils/fileDownload'
 
-const props = defineProps<{ realm: string; active: boolean }>()
+// dockElsewhere: an overview page (Machines, Open Windows) is showing this
+// realm's dock in App.vue's #overview-dock instead of on the desktop.
+const props = defineProps<{ realm: string; active: boolean; dockElsewhere?: boolean }>()
 
 const machinesStore = useMachinesStore()
 const settingsStore = useSettingsStore()
@@ -679,6 +682,8 @@ function windowRef(id: string) {
 const dockThickness = ref(0)
 
 function measureDockThickness() {
+  // Teleported out of launcherBody — keep the desktop's last measurement.
+  if (props.dockElsewhere) return
   const dockEl = launcherBodyRef.value?.querySelector<HTMLElement>('.dock')
   if (!dockEl) {
     dockThickness.value = 0
@@ -724,7 +729,19 @@ function onActivateWindow(id: string) {
 function handleLaunch(appId: string) {
   if (isDisconnected.value) return
   const app = apps.find((a) => a.id === appId)
-  if (app) launchApp(app)
+  if (!app) return
+  launchApp(app)
+  if (props.dockElsewhere) openLauncher(props.realm, desktopName.value)
+}
+
+// From an overview page's dock: always show the window, never toggle-minimize it.
+function onDockActivate(id: string) {
+  if (!props.dockElsewhere) return onActivateWindow(id)
+  const win = windows.value.find((w) => w.id === id)
+  if (!win) return
+  if (win.minimized) restoreWindow(id)
+  else focusWindow(id)
+  openLauncher(props.realm, desktopName.value)
 }
 
 // App.vue keeps one DesktopSessionHost per realm mounted forever (v-show, not
@@ -844,6 +861,8 @@ onUnmounted(() => {
         </FloatingWindow>
       </div>
 
+      <!-- Not shown on an overview page while offline: nothing it could launch. -->
+      <Teleport v-if="!(dockElsewhere && isDisconnected)" to="#overview-dock" :disabled="!dockElsewhere" defer>
       <AppDock
         :realm="realm"
         :desktop-name="desktopName"
@@ -855,9 +874,10 @@ onUnmounted(() => {
         :is-desktop="isDesktop"
         :mobile="isMobile"
         @launch="handleLaunch"
-        @activate="onActivateWindow"
+        @activate="onDockActivate"
         @close="closeWindowSafely"
       />
+      </Teleport>
     </div>
     </Teleport>
 
