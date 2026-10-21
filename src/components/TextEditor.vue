@@ -1115,6 +1115,8 @@ onUnmounted(() => {
   min-height: 0;
   display: flex;
   overflow: hidden;
+  color-scheme: dark;
+  scrollbar-color: #3a3a3a #000000;
 }
 
 .editor-sidebar {
