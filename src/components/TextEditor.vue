@@ -29,6 +29,7 @@ import { createFileBrowser } from '@/utils/fileBrowse'
 import { fetchGitOriginal } from '@/utils/git'
 import { uploadFileToPath } from '@/utils/fileUpload'
 import { computeLineDiff, type LineDiffMap } from '@/utils/lineDiff'
+import 'highlight.js/styles/monokai-sublime.css'
 
 const procedureFileEdit = 'io.xconn.deskconn.file.edit'
 const MAX_EDIT_SIZE = 10 * 1024 * 1024
@@ -599,8 +600,66 @@ const activeGutterEl = computed(() => (activeTabId.value !== null ? gutterElMap.
 // interaction. Re-syncing on every interaction that could plausibly move
 // the caret closes the window instead of chasing the exact browser trigger.
 function syncGutterScroll() {
-  if (activeGutterEl.value) activeGutterEl.value.scrollTop = activeTextareaEl.value?.scrollTop ?? 0
+  const top = activeTextareaEl.value?.scrollTop ?? 0
+  if (activeGutterEl.value) activeGutterEl.value.scrollTop = top
+  if (activeHighlightEl.value) activeHighlightEl.value.scrollTop = top
 }
+
+// ── Syntax highlighting: a <pre> of highlight.js markup sits under a
+// transparent-text textarea, wrapped and scrolled identically, so the caret,
+// selection and editing stay the textarea's own.
+type Hljs = typeof import('highlight.js').default
+const hljs = shallowRef<Hljs | null>(null)
+// Loaded on demand — the full build (~190 languages) is big.
+void import('highlight.js').then((m) => { hljs.value = m.default })
+
+const highlightElMap = reactive(new Map<number, HTMLElement>())
+function setHighlightEl(id: number, el: Element | null) {
+  if (el) highlightElMap.set(id, el as HTMLElement)
+  else highlightElMap.delete(id)
+}
+const activeHighlightEl = computed(() => (activeTabId.value !== null ? highlightElMap.get(activeTabId.value) ?? null : null))
+// A freshly shown layer (tab switch, highlighter just loaded) starts at the top.
+watch(activeHighlightEl, syncGutterScroll)
+
+// Whole file names, then extensions highlight.js has no alias for. Anything
+// else is tried as an extension directly (py, go, rs, ts, dart, json…).
+const LANGUAGE_BY_NAME: Record<string, string> = {
+  dockerfile: 'dockerfile', containerfile: 'dockerfile',
+  makefile: 'makefile', gnumakefile: 'makefile', 'cmakelists.txt': 'cmake',
+  gemfile: 'ruby', rakefile: 'ruby', vagrantfile: 'ruby', jenkinsfile: 'groovy',
+  '.bashrc': 'bash', '.bash_profile': 'bash', '.zshrc': 'bash', '.profile': 'bash', '.env': 'bash',
+}
+const LANGUAGE_BY_EXT: Record<string, string> = {
+  pyi: 'python', htm: 'xml', vue: 'xml', svelte: 'xml', astro: 'xml', sass: 'scss',
+  mdx: 'markdown', env: 'bash', fish: 'bash', jl: 'julia', conf: 'ini', cfg: 'ini',
+}
+
+function languageFor(name: string, lib: Hljs): string | null {
+  const lower = name.toLowerCase()
+  if (LANGUAGE_BY_NAME[lower]) return LANGUAGE_BY_NAME[lower]!
+  if (lower.startsWith('dockerfile') || lower.startsWith('containerfile')) return 'dockerfile'
+  if (lower.startsWith('.env.')) return 'bash'
+  const dot = lower.lastIndexOf('.')
+  if (dot <= 0) return null
+  const ext = lower.slice(dot + 1)
+  const lang = LANGUAGE_BY_EXT[ext] ?? ext
+  return lib.getLanguage(lang) ? lang : null
+}
+
+// ponytail: re-highlights the whole file per keystroke; past this size it
+// stays plain. Incremental (per-line) highlighting if big files matter.
+const MAX_HIGHLIGHT_SIZE = 256 * 1024
+
+const highlightedHtml = computed(() => {
+  const tab = activeTab.value
+  const lib = hljs.value
+  if (!tab || !lib || !tab.entry || tab.content.length > MAX_HIGHLIGHT_SIZE) return ''
+  const lang = languageFor(tab.entry.name, lib)
+  if (!lang) return ''
+  // Trailing newline: a <pre> drops a final empty line that the textarea shows.
+  return lib.highlight(tab.content, { language: lang, ignoreIllegals: true }).value + '\n'
+})
 
 const availableWidth = ref(0)
 let measureCtx: CanvasRenderingContext2D | null = null
@@ -946,10 +1005,19 @@ onUnmounted(() => {
                   </div>
                 </div>
               </div>
+              <div class="editor-code">
+              <pre
+                v-if="tab.id === activeTabId && highlightedHtml"
+                :ref="(el) => setHighlightEl(tab.id, el as Element | null)"
+                class="editor-highlight"
+                aria-hidden="true"
+                v-html="highlightedHtml"
+              ></pre>
               <textarea
                 :ref="(el) => setTextareaEl(tab.id, el as Element | null)"
                 v-model="tab.content"
                 class="editor-textarea"
+                :class="{ 'editor-textarea-highlighted': tab.id === activeTabId && highlightedHtml }"
                 spellcheck="false"
                 autocapitalize="off"
                 autocomplete="off"
@@ -962,6 +1030,7 @@ onUnmounted(() => {
                 @focus="syncGutterScroll"
                 @keydown="handleTextareaKeydown"
               ></textarea>
+              </div>
             </div>
           </div>
         </template>
@@ -1245,6 +1314,51 @@ onUnmounted(() => {
 .diff-marker-added { background: #7ec699; }
 .diff-marker-modified { background: #7fb4e0; }
 
+.editor-code {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+}
+/* The highlight layer must wrap exactly like the textarea above it: same
+   box, font, padding and wrapping, and the same reserved scrollbar gutter
+   (scrollbar-gutter on both) so the text width never differs. */
+.editor-highlight,
+.editor-textarea {
+  margin: 0;
+  padding: 1rem 1.25rem;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  tab-size: 4;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  scrollbar-gutter: stable;
+}
+.editor-highlight {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  color: #f8f8f2;
+  background: #1e1e1e;
+}
+/* Bold/italic can change glyph widths in some fonts and drift the overlay. */
+.editor-highlight :deep(*) {
+  font-weight: inherit;
+  font-style: inherit;
+}
+.editor-textarea-highlighted {
+  position: relative;
+  background: transparent !important;
+  color: transparent !important;
+  caret-color: #f8f8f2;
+}
+.editor-textarea-highlighted::selection {
+  color: transparent;
+  background: rgba(117, 163, 209, 0.35);
+}
 .editor-textarea {
   flex: 1;
   min-height: 0;
@@ -1252,15 +1366,8 @@ onUnmounted(() => {
   border: 0;
   outline: none;
   resize: none;
-  padding: 1rem 1.25rem;
   background: #1e1e1e;
   color: #f8f8f2;
-  font-size: 0.85rem;
-  line-height: 1.6;
-  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
-  tab-size: 4;
-  white-space: pre-wrap;
-  overflow-wrap: break-word;
   overflow: auto;
   overflow-x: hidden;
 }
