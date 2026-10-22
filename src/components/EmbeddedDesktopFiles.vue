@@ -1904,13 +1904,14 @@ onUnmounted(() => {
   }
 }
 
-/* Phone: a row of equal-width tabs, icon over label, so every place fits
-   on screen without scrolling. */
+/* Phone: a bottom tab bar of equal-width tabs, icon over label, so every
+   place fits on screen without scrolling. */
 @media (max-width: 767px) {
   .places-sidebar {
+    order: 1;
     overflow: visible;
     border-right: none;
-    border-bottom: 1px solid #e2e8f0;
+    border-top: 1px solid #e2e8f0;
     padding: 0.35rem;
   }
 
