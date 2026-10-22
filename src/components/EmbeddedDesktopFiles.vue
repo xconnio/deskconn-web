@@ -18,6 +18,7 @@ import {
   type EncryptionKeys,
 } from '@/utils/encryption'
 import { uploadFileToPath } from '@/utils/fileUpload'
+import { notifyFileChanged } from '@/utils/fileChanges'
 import { downloadFile, ensureDownloadServiceWorker, type DownloadProgressState } from '@/utils/fileDownload'
 import { formatSize, getFilePreviewType, isFirefoxBrowser } from '@/utils/fileTypes'
 import { formatDesktopError, isDesktopOfflineError, isNoSuchProcedureException } from '@/utils/desktopError'
@@ -1014,6 +1015,7 @@ async function confirmRename() {
       old_path: actionSheetEntry.value.path,
       new_path: newPath,
     })
+    notifyFileChanged(props.realm, actionSheetEntry.value.path, newPath)
     if (clipboard.value?.path === actionSheetEntry.value.path) {
       clipboard.value = null
     }
@@ -1038,6 +1040,7 @@ async function confirmDelete() {
 
   try {
     await callFileOperation(procedureFileDelete, { path: actionSheetEntry.value.path })
+    notifyFileChanged(props.realm, actionSheetEntry.value.path)
     if (clipboard.value?.path === actionSheetEntry.value.path) {
       clipboard.value = null
     }
@@ -1075,6 +1078,7 @@ async function pasteClipboard() {
 
   try {
     await callFileOperation(procedureFileCopy, { src: srcPath, dst: dstPath })
+    notifyFileChanged(props.realm, dstPath)
     clipboard.value = null
     await refreshCurrentPath()
   } catch (error) {

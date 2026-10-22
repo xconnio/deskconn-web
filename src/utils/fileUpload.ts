@@ -6,6 +6,8 @@
  */
 import { type Session } from 'xconn'
 import { uploadFile, type UploadProgress } from '@/services/fileStream'
+import { notifyFileChanged } from '@/utils/fileChanges'
+import { joinPath } from '@/utils/filePath'
 
 export type { UploadProgress }
 
@@ -19,4 +21,5 @@ export async function uploadFileToPath(
   signal?: AbortSignal,
 ): Promise<void> {
   await uploadFile(session, realm, destDir, fileName, file, onProgress, signal)
+  notifyFileChanged(realm, joinPath(destDir, fileName))
 }
