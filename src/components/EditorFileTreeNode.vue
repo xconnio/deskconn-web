@@ -7,6 +7,7 @@ defineOptions({ name: 'EditorFileTreeNode' })
 import { computed, inject } from 'vue'
 import type { FileEntry } from '@/types'
 import { editorFileTreeActionsKey } from '@/composables/editorFileTreeActions'
+import { fileIconUrl } from '@/utils/fileIcons'
 
 const props = defineProps<{
   entry: FileEntry
@@ -21,6 +22,8 @@ const isLoading = computed(() => actions.isLoading(props.entry.path))
 const gitStatus = computed(() => actions.statusOf(props.entry.path))
 
 const isSelected = computed(() => actions.isSelected(props.entry.path))
+// Files get a VS Code-style language icon; git status still colors the name.
+const fileIcon = computed(() => (props.entry.is_dir ? null : fileIconUrl(props.entry.name)))
 
 function onClick() {
   actions.select(props.entry.path)
@@ -56,7 +59,8 @@ function onDblClick() {
       :class="isExpanded ? 'bi-chevron-down' : 'bi-chevron-right'"
     ></i>
     <span v-else class="tree-caret-spacer"></span>
-    <i class="bi tree-icon" :class="entry.is_dir ? 'bi-folder-fill' : 'bi-file-earmark'"></i>
+    <img v-if="fileIcon" :src="fileIcon" alt="" class="tree-file-icon" />
+    <i v-else class="bi bi-folder-fill tree-icon"></i>
     <span class="tree-name">{{ entry.name }}</span>
     <span v-if="isLoading" class="spinner-border spinner-border-sm tree-spinner" role="status"></span>
   </div>
@@ -128,6 +132,12 @@ function onDblClick() {
 }
 .tree-row-ignored .tree-icon {
   color: #f59e0b;
+}
+
+.tree-file-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
 }
 
 .tree-name {
