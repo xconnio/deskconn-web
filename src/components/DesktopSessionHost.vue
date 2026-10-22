@@ -297,6 +297,12 @@ async function fetchWallpaper() {
   }
 }
 
+// The entrance animation plays once, on first show. App.vue hides this host
+// with v-show rather than unmounting it, and a CSS animation replays every
+// time its element goes from display:none back to shown — so returning to
+// the same machine would otherwise look like a fresh load.
+const hasEntered = ref(false)
+
 // Blurs the desktop until the backend session is actually up — independent
 // of the wallpaper fetch above, which is opt-in via a setting and shouldn't
 // gate this.
@@ -819,7 +825,12 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="launcher-wrapper fade-in-up" @contextmenu.prevent>
+  <div
+    class="launcher-wrapper"
+    :class="{ 'fade-in-up': !hasEntered }"
+    @animationend.self="hasEntered = true"
+    @contextmenu.prevent
+  >
     <Teleport :to="previewTarget" :disabled="!previewTarget">
     <div
       ref="launcherBodyRef"
