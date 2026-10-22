@@ -73,7 +73,7 @@ function previewRef(realm: string): TemplateRefCallback {
 }
 
 function selectMachine(desktop: DesktopCard) {
-  openLauncher(desktop.realm, desktop.name)
+  openLauncher(desktop.realm)
 }
 
 // Only shown when this overview was reached from a desktop (e.g. the dock's
