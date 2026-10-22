@@ -77,10 +77,62 @@ const breadcrumbs = computed(() => {
   return segments
 })
 
+function visibleEntries(list: FileEntry[] | undefined): FileEntry[] {
+  return (list ?? []).filter((e) => !e.hidden && !e.name.startsWith('.'))
+}
+
+// Folders expanded in place via their chevron, so their contents can be seen
+// without navigating in and back out. Children load on first expand.
+// Not in save-as: it saves into the folder being browsed, so a file picked
+// from inside an expanded subfolder would be saved in the wrong place.
+const canExpand = computed(() => props.mode !== 'save-as')
+const expanded = ref(new Set<string>())
+const children = ref<Record<string, FileEntry[] | 'loading' | 'error'>>({})
+
+async function toggleExpand(entry: FileEntry) {
+  const next = new Set(expanded.value)
+  if (next.delete(entry.path)) {
+    expanded.value = next
+    return
+  }
+  next.add(entry.path)
+  expanded.value = next
+  if (Array.isArray(children.value[entry.path])) return
+  children.value = { ...children.value, [entry.path]: 'loading' }
+  try {
+    const browse = await fileBrowser.value.browseFiles(entry.path)
+    children.value = { ...children.value, [entry.path]: visibleEntries(browse.entries) }
+  } catch {
+    children.value = { ...children.value, [entry.path]: 'error' }
+  }
+}
+
+type Row =
+  | { kind: 'entry'; entry: FileEntry; depth: number }
+  | { kind: 'loading' | 'error' | 'empty'; key: string; depth: number }
+
+const rows = computed<Row[]>(() => {
+  const out: Row[] = []
+  const walk = (list: FileEntry[], depth: number) => {
+    for (const entry of list) {
+      out.push({ kind: 'entry', entry, depth })
+      if (!entry.is_dir || !expanded.value.has(entry.path)) continue
+      const kids = children.value[entry.path]
+      if (kids === 'loading' || kids === 'error') out.push({ kind: kids, key: `${entry.path}:${kids}`, depth: depth + 1 })
+      else if (!kids?.length) out.push({ kind: 'empty', key: `${entry.path}:empty`, depth: depth + 1 })
+      else walk(kids, depth + 1)
+    }
+  }
+  walk(entries.value, 0)
+  return out
+})
+
 async function load(path: string) {
   loading.value = true
   error.value = ''
   selectedEntry.value = null
+  expanded.value = new Set()
+  children.value = {}
   try {
     const browse = await fileBrowser.value.browseFiles(path)
     // A typed path can point anywhere: checked once the desktop has resolved it (.., ~).
@@ -93,7 +145,7 @@ async function load(path: string) {
     parentPath.value = browse.parent_path
     // Files are still listed in open-folder mode (for context — see
     // isDisabledEntry below) even though they can't be picked there.
-    entries.value = (browse.entries ?? []).filter((e) => !e.hidden && !e.name.startsWith('.'))
+    entries.value = visibleEntries(browse.entries)
   } catch (err) {
     error.value = formatDesktopError(err, 'Failed to browse remote path')
   } finally {
@@ -225,17 +277,33 @@ onMounted(() => load(props.initialPath ?? ''))
         <div v-else-if="error" class="picker-state picker-error">{{ error }}</div>
         <div v-else-if="entries.length === 0" class="picker-state text-muted">Empty folder</div>
         <div v-else class="picker-list">
-          <button
-            v-for="entry in entries"
-            :key="entry.path"
-            class="picker-row"
-            :class="{ active: selectedEntry?.path === entry.path, disabled: isDisabledEntry(entry) }"
-            @click="onEntryClick(entry)"
-            @dblclick="onEntryDblClick(entry)"
-          >
-            <i class="bi" :class="entry.is_dir ? 'bi-folder-fill' : 'bi-file-earmark'"></i>
-            <span class="picker-name">{{ entry.name }}</span>
-          </button>
+          <template v-for="row in rows" :key="row.kind === 'entry' ? row.entry.path : row.key">
+            <button
+              v-if="row.kind === 'entry'"
+              class="picker-row"
+              :class="{ active: selectedEntry?.path === row.entry.path, disabled: isDisabledEntry(row.entry) }"
+              :style="{ paddingLeft: `${0.6 + row.depth * 1.1}rem` }"
+              @click="onEntryClick(row.entry)"
+              @dblclick="onEntryDblClick(row.entry)"
+            >
+              <span
+                v-if="canExpand"
+                class="picker-chevron"
+                :class="{ 'picker-chevron-none': !row.entry.is_dir }"
+                :title="expanded.has(row.entry.path) ? 'Collapse' : 'Expand'"
+                @click.stop="row.entry.is_dir && toggleExpand(row.entry)"
+                @dblclick.stop
+              >
+                <i class="bi" :class="expanded.has(row.entry.path) ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
+              </span>
+              <i class="bi" :class="row.entry.is_dir ? 'bi-folder-fill' : 'bi-file-earmark'"></i>
+              <span class="picker-name">{{ row.entry.name }}</span>
+            </button>
+            <div v-else class="picker-row picker-row-note" :style="{ paddingLeft: `${0.6 + row.depth * 1.1 + 1.6}rem` }">
+              <span v-if="row.kind === 'loading'" class="spinner-border spinner-border-sm" role="status"></span>
+              <template v-else>{{ row.kind === 'error' ? 'Failed to load' : 'Empty folder' }}</template>
+            </div>
+          </template>
         </div>
       </div>
 
@@ -419,6 +487,27 @@ onMounted(() => load(props.initialPath ?? ''))
 .picker-row.active { background: #dbeafe; }
 .picker-row i { color: #94a3b8; flex-shrink: 0; }
 .picker-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.picker-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.picker-chevron:hover { background: #e2e8f0; }
+.picker-row .picker-chevron i { color: #64748b; font-size: 0.7rem; }
+/* Files keep the chevron's width so names line up with their sibling folders. */
+.picker-chevron-none { visibility: hidden; }
+
+.picker-row-note {
+  color: #94a3b8;
+  font-size: 0.78rem;
+  cursor: default;
+}
+.picker-row-note:hover { background: transparent; }
 
 /* Files shown for context in open-folder mode — visible, but not a valid pick. */
 .picker-row.disabled {
