@@ -69,6 +69,19 @@ async function applyToggle(id: string, enabled: boolean) {
   }
 }
 
+type Section = 'appearance' | 'apps'
+
+const sections = computed(() => [
+  { id: 'appearance' as const, label: 'Appearance', icon: 'bi-palette' },
+  // Only once the device has listed its apps — older builds have none to manage.
+  ...(capabilities.value.length ? [{ id: 'apps' as const, label: 'Apps', icon: 'bi-grid' }] : []),
+])
+
+const selectedSection = ref<Section>('appearance')
+const activeSection = computed(() =>
+  sections.value.find((s) => s.id === selectedSection.value) ?? sections.value[0]!,
+)
+
 onMounted(() => {
   void capabilitiesStore.fetch(props.realm)
 })
@@ -76,56 +89,67 @@ onMounted(() => {
 
 <template>
   <div class="desktop-settings">
-    <div class="desktop-settings-inner">
-      <h4 class="desktop-settings-title">Appearance</h4>
+    <aside class="desktop-settings-nav">
+      <button
+        v-for="section in sections"
+        :key="section.id"
+        class="desktop-settings-nav-item"
+        :class="{ active: activeSection.id === section.id }"
+        :title="section.label"
+        @click="selectedSection = section.id"
+      >
+        <i class="bi" :class="section.icon"></i>
+        <span class="desktop-settings-nav-label">{{ section.label }}</span>
+      </button>
+    </aside>
 
-      <div class="desktop-settings-card desktop-settings-row">
-        <p class="mb-0 fw-semibold">Task bar position</p>
-        <select
-          class="form-select form-select-sm desktop-settings-select"
-          :value="settingsStore.getDockPosition(props.realm)"
-          @change="settingsStore.setDockPosition(props.realm, ($event.target as HTMLSelectElement).value as DockPosition)"
-        >
-          <option value="bottom">Bottom</option>
-          <option value="left">Left</option>
-          <option value="right">Right</option>
-        </select>
-      </div>
+    <div class="desktop-settings-content">
+      <div class="desktop-settings-inner">
+        <h4 class="desktop-settings-title">{{ activeSection.label }}</h4>
 
-      <template v-if="capabilities.length">
-        <h4 class="desktop-settings-title desktop-settings-title--section">Apps</h4>
-        <p class="desktop-settings-note">
-          {{
-            canManageApps
-              ? 'Turned-off apps are unavailable to everyone on this machine, including the desk CLI.'
-              : "Only this machine's owner or an admin can turn apps on or off."
-          }}
-        </p>
-
-        <div class="desktop-settings-grid">
-          <div v-for="app in capabilities" :key="app.id" class="desktop-settings-card desktop-settings-row">
-            <div>
-              <p class="mb-0 fw-semibold">{{ app.name }}</p>
-              <p v-if="!app.enabled && missingRequirement(app)" class="desktop-settings-hint">
-                Requires {{ missingRequirement(app) }}. Turn on {{ missingRequirement(app) }} first.
-              </p>
-            </div>
-            <div class="form-check form-switch mb-0">
-              <input
-                class="form-check-input desktop-settings-switch"
-                type="checkbox"
-                role="switch"
-                :aria-label="`${app.name} enabled`"
-                :checked="app.enabled"
-                :disabled="!canManageApps || pendingId !== null || (!app.enabled && !!missingRequirement(app))"
-                @change="onToggle(app, ($event.target as HTMLInputElement).checked, $event)"
-              />
-            </div>
-          </div>
+        <div v-if="activeSection.id === 'appearance'" class="desktop-settings-card desktop-settings-row">
+          <p class="mb-0 fw-semibold">Task bar position</p>
+          <select
+            class="form-select form-select-sm desktop-settings-select"
+            :value="settingsStore.getDockPosition(props.realm)"
+            @change="settingsStore.setDockPosition(props.realm, ($event.target as HTMLSelectElement).value as DockPosition)"
+          >
+            <option value="bottom">Bottom</option>
+            <option value="left">Left</option>
+            <option value="right">Right</option>
+          </select>
         </div>
 
-        <div v-if="appsError" class="alert alert-danger mt-3 mb-0 py-2 small">{{ appsError }}</div>
-      </template>
+        <template v-else>
+          <p v-if="!canManageApps" class="desktop-settings-note">
+            Only this machine's owner or an admin can turn apps on or off.
+          </p>
+
+          <div class="desktop-settings-grid">
+            <div v-for="app in capabilities" :key="app.id" class="desktop-settings-card desktop-settings-row">
+              <div>
+                <p class="mb-0 fw-semibold">{{ app.name }}</p>
+                <p v-if="!app.enabled && missingRequirement(app)" class="desktop-settings-hint">
+                  Requires {{ missingRequirement(app) }}. Turn on {{ missingRequirement(app) }} first.
+                </p>
+              </div>
+              <div class="form-check form-switch mb-0">
+                <input
+                  class="form-check-input desktop-settings-switch"
+                  type="checkbox"
+                  role="switch"
+                  :aria-label="`${app.name} enabled`"
+                  :checked="app.enabled"
+                  :disabled="!canManageApps || pendingId !== null || (!app.enabled && !!missingRequirement(app))"
+                  @change="onToggle(app, ($event.target as HTMLInputElement).checked, $event)"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div v-if="appsError" class="alert alert-danger mt-3 mb-0 py-2 small">{{ appsError }}</div>
+        </template>
+      </div>
     </div>
 
     <ConfirmDialog
@@ -140,18 +164,86 @@ onMounted(() => {
 </template>
 
 <style scoped>
+/* A container, not the viewport: this is a resizable window, so the sidebar
+   collapses to icons based on the window's own width. */
 .desktop-settings {
   display: flex;
-  justify-content: center;
   height: 100%;
-  overflow-y: auto;
-  padding: 2.5rem 1.5rem;
   background: #f4f5f7;
+  container-type: inline-size;
+}
+
+.desktop-settings-nav {
+  width: 200px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 1.25rem 0.6rem;
+  background: #ebedf0;
+  border-right: 1px solid #e2e4e8;
+  overflow-y: auto;
+}
+
+.desktop-settings-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  border: none;
+  background: transparent;
+  color: #3d4652;
+  font-weight: 600;
+  font-size: 0.88rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 6px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.desktop-settings-nav-item:hover {
+  background: #dfe2e6;
+}
+
+.desktop-settings-nav-item.active {
+  background: #d4d8de;
+  color: #1e2328;
+}
+
+.desktop-settings-content {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 2rem 1.5rem;
 }
 
 .desktop-settings-inner {
   width: 100%;
   max-width: 960px;
+  margin: 0 auto;
+}
+
+@container (max-width: 560px) {
+  .desktop-settings-nav {
+    width: 56px;
+    padding: 1rem 0.4rem;
+  }
+
+  .desktop-settings-nav-item {
+    justify-content: center;
+    padding: 0.6rem;
+  }
+
+  .desktop-settings-nav-item i {
+    font-size: 1.1rem;
+  }
+
+  .desktop-settings-nav-label {
+    display: none;
+  }
+
+  .desktop-settings-content {
+    padding: 1.25rem 1rem;
+  }
 }
 
 .desktop-settings-grid {
@@ -162,7 +254,6 @@ onMounted(() => {
 
 .desktop-settings-title {
   margin: 0 0 1.25rem;
-  text-align: center;
   font-size: 1.3rem;
   font-weight: 700;
   color: #1e2328;
@@ -184,14 +275,8 @@ onMounted(() => {
   padding: 0.9rem 1.1rem;
 }
 
-.desktop-settings-title--section {
-  margin-top: 2rem;
-  margin-bottom: 0.5rem;
-}
-
 .desktop-settings-note {
-  margin: 0 0 1rem;
-  text-align: center;
+  margin: -0.75rem 0 1rem;
   font-size: 0.85rem;
   color: #5f6b7a;
 }
