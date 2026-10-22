@@ -215,6 +215,11 @@ onUnmounted(() => {
   background: rgb(20, 20, 22);
 }
 
+/* AppDock's mobile app icons belong on the desktop, not over the overview. */
+#overview-dock .desktop-icon-grid {
+  display: none;
+}
+
 .main-content:has(> #overview-dock .dock-bottom) { padding-bottom: 4.5rem; }
 .main-content:has(> #overview-dock .dock-left) { padding-left: 4.5rem; }
 .main-content:has(> #overview-dock .dock-right) { padding-right: 4.5rem; }

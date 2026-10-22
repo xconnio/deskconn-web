@@ -509,7 +509,7 @@ onUnmounted(() => {
       <template v-else>
         <button class="mobile-nav-item" aria-label="Machines" @click="toggleMachines()">
           <i class="bi bi-window-stack"></i>
-          <span class="mobile-nav-label">Machine</span>
+          <span class="mobile-nav-label">Machines</span>
         </button>
 
         <button class="mobile-nav-item" aria-label="Profile" @click="accountPanelStore.open('account')">
