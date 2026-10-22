@@ -1,15 +1,18 @@
 <script setup lang="ts">
-import { computed, nextTick, provide, reactive, ref, shallowRef, watch } from 'vue'
+import { computed, nextTick, onUnmounted, provide, reactive, ref, shallowRef, watch } from 'vue'
 import type { Session } from 'xconn'
 import type { FileEntry } from '@/types'
 import type { EncryptionKeys } from '@/utils/encryption'
 import { createFileBrowser } from '@/utils/fileBrowse'
 import { fetchGitStatus, type GitFileStatus } from '@/utils/git'
+import { onFileChanged } from '@/utils/fileChanges'
+import { dirName, isPathWithinHome, normalizeComparablePath } from '@/utils/filePath'
 import { editorFileTreeActionsKey } from '@/composables/editorFileTreeActions'
 import EditorFileTreeNode from '@/components/EditorFileTreeNode.vue'
 
 const props = defineProps<{
   session: Session
+  realm: string
   rootPath: string
   rootName: string
   keys: EncryptionKeys
@@ -78,6 +81,38 @@ async function toggleDir(path: string) {
     loadingPaths.delete(path)
   }
 }
+
+// Saves, uploads, renames and deletes made from this site (see fileChanges)
+// re-list the affected folder, if it's showing, and recolor git status.
+// ponytail: changes made on the device itself aren't seen until Refresh;
+// needs a backend file-watch topic to subscribe to.
+async function refreshDir(dir: string) {
+  const isRoot = normalizeComparablePath(dir) === normalizeComparablePath(props.rootPath)
+  if (!isRoot && !childrenByPath.has(dir)) return
+  try {
+    const entries = (await fileBrowser.value.browseFiles(dir)).entries ?? []
+    if (isRoot) rootEntries.value = entries
+    else childrenByPath.set(dir, entries)
+  } catch {
+    // Keep the current listing; Refresh is still there.
+  }
+}
+
+let statusTimer: ReturnType<typeof setTimeout> | undefined
+const stopFileChanges = onFileChanged((realm, path) => {
+  if (realm !== props.realm || !isPathWithinHome(path, props.rootPath)) return
+  // A renamed/deleted folder's cached listing is stale; drop it so it re-lists when next expanded.
+  childrenByPath.delete(path)
+  expanded.delete(path)
+  if (normalizeComparablePath(path) !== normalizeComparablePath(props.rootPath)) void refreshDir(dirName(path))
+  // One git status call for a burst of changes (e.g. a rename's two paths).
+  clearTimeout(statusTimer)
+  statusTimer = setTimeout(() => void loadStatus(), 150)
+})
+onUnmounted(() => {
+  stopFileChanges()
+  clearTimeout(statusTimer)
+})
 
 // ── Keyboard navigation ─────────────────────────────────────────────────────
 const treeEl = ref<HTMLElement | null>(null)

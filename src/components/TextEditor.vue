@@ -28,6 +28,7 @@ import { formatDesktopError, isDesktopOfflineError, isEditConflictError } from '
 import { createFileBrowser } from '@/utils/fileBrowse'
 import { fetchGitOriginal } from '@/utils/git'
 import { uploadFileToPath } from '@/utils/fileUpload'
+import { notifyFileChanged } from '@/utils/fileChanges'
 import { computeLineDiff, type LineDiffMap } from '@/utils/lineDiff'
 
 const procedureFileEdit = 'io.xconn.deskconn.file.edit'
@@ -508,6 +509,7 @@ async function performSave(tab: TabState) {
     if (encryptedResult) decryptPayload(encryptedResult as Uint8Array, keys.decryptKey)
 
     tab.originalContent = tab.content
+    notifyFileChanged(props.realm, tab.entry.path)
     flashSaved()
   } catch (err) {
     tab.saveConflict = isEditConflictError(err)
@@ -896,6 +898,7 @@ onUnmounted(() => {
         <div class="editor-sidebar" :style="{ width: sidebarWidth + 'px' }">
           <EditorFileTree
             :session="activeSession"
+            :realm="realm"
             :keys="encryptionKeys"
             :root-path="openedFolderPath"
             :root-name="openedFolderName"
