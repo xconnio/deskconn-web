@@ -753,7 +753,7 @@ function handleLaunch(appId: string) {
   const app = apps.find((a) => a.id === appId)
   if (!app) return
   launchApp(app)
-  if (props.dockElsewhere) openLauncher(props.realm, desktopName.value)
+  if (props.dockElsewhere) openLauncher(props.realm)
 }
 
 // From an overview page's dock: always show the window, never toggle-minimize it.
@@ -763,7 +763,7 @@ function onDockActivate(id: string) {
   if (!win) return
   if (win.minimized) restoreWindow(id)
   else focusWindow(id)
-  openLauncher(props.realm, desktopName.value)
+  openLauncher(props.realm)
 }
 
 // App.vue keeps one DesktopSessionHost per realm mounted forever (v-show, not

@@ -12,15 +12,12 @@ export function openFiles(realm: string, desktopName?: string, initialPath?: str
   })
 }
 
-export function openLauncher(realm: string, desktopName?: string, notSupported?: string) {
+export function openLauncher(realm: string, notSupported?: string) {
   useSettingsStore().setLastRealm(realm)
   router.push({
     name: 'desktop-launcher',
     params: { realm },
-    query: {
-      ...(desktopName  ? { name: desktopName } : {}),
-      ...(notSupported ? { notSupported }      : {}),
-    },
+    query: notSupported ? { notSupported } : {},
   })
 }
 

@@ -53,12 +53,12 @@ const route = useRoute()
 // The overview buttons toggle: pressed again while already on that overview,
 // they go back to this machine's desktop instead.
 function toggleMachines() {
-  if (route.name === 'home') openLauncher(props.realm, props.desktopName)
+  if (route.name === 'home') openLauncher(props.realm)
   else requestMachinesPicker()
 }
 
 function toggleWindowsOverview() {
-  if (route.name === 'desktop-windows') openLauncher(props.realm, props.desktopName)
+  if (route.name === 'desktop-windows') openLauncher(props.realm)
   else openWindowsOverview(props.realm)
 }
 
