@@ -75,7 +75,7 @@ function setPreviewTarget(windowId: string, el: Element | null) {
 
 <template>
   <OverviewGrid
-    title="Open Windows"
+    title="Open Apps"
     :entries="entries"
     :active-id="manager.focusedId.value"
     show-back
