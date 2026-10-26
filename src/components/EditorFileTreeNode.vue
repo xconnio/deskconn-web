@@ -37,6 +37,12 @@ function onClick() {
 function onDblClick() {
   if (!props.entry.is_dir) actions.openFilePinned(props.entry)
 }
+
+function onDragStart(e: DragEvent) {
+  // Firefox won't start a drag without some data set.
+  e.dataTransfer?.setData('text/plain', props.entry.path)
+  actions.dragFile(props.entry)
+}
 </script>
 
 <template>
@@ -52,6 +58,8 @@ function onDblClick() {
     :style="{ paddingLeft: `${depth * 14 + 8}px` }"
     @click="onClick"
     @dblclick="onDblClick"
+    :draggable="!entry.is_dir"
+    @dragstart="onDragStart"
   >
     <i
       v-if="entry.is_dir"
@@ -59,7 +67,7 @@ function onDblClick() {
       :class="isExpanded ? 'bi-chevron-down' : 'bi-chevron-right'"
     ></i>
     <span v-else class="tree-caret-spacer"></span>
-    <img v-if="fileIcon" :src="fileIcon" alt="" class="tree-file-icon" />
+    <img v-if="fileIcon" :src="fileIcon" alt="" class="tree-file-icon" draggable="false" />
     <i v-else class="bi bi-folder-fill tree-icon"></i>
     <span class="tree-name">{{ entry.name }}</span>
     <span v-if="isLoading" class="spinner-border spinner-border-sm tree-spinner" role="status"></span>

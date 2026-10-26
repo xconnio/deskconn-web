@@ -21,6 +21,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   'open-file': [entry: FileEntry]
   'open-file-pinned': [entry: FileEntry]
+  'drag-file': [entry: FileEntry]
 }>()
 
 const fileBrowser = shallowRef(createFileBrowser(props.session, () => props.keys))
@@ -198,6 +199,7 @@ provide(editorFileTreeActionsKey, {
   toggleDir,
   openFile: (entry) => emit('open-file', entry),
   openFilePinned: (entry) => emit('open-file-pinned', entry),
+  dragFile: (entry) => emit('drag-file', entry),
   isSelected: (path) => selectedPath.value === path,
   select: (path) => void select(path),
 })

@@ -13,6 +13,8 @@ export interface EditorFileTreeActions {
   toggleDir(path: string): void
   openFile(entry: FileEntry): void
   openFilePinned(entry: FileEntry): void
+  /** A file row started being dragged (e.g. onto the editor to open/split). */
+  dragFile(entry: FileEntry): void
   isSelected(path: string): boolean
   select(path: string): void
 }
