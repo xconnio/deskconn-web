@@ -357,6 +357,8 @@ function findScrollerAt(x: number, y: number) {
   // elementsFromPoint (not just the topmost hit + ancestors): some scrollers,
   // e.g. xterm's viewport, sit behind a sibling layer rather than above it.
   for (const el of document.elementsFromPoint(x, y)) {
+    // The hit list runs through every window stacked underneath too.
+    if (!root?.contains(el)) continue
     for (let cur: Element | null = el; cur && cur !== root; cur = cur.parentElement) {
       if (isScrollable(cur)) return cur
     }
@@ -364,15 +366,26 @@ function findScrollerAt(x: number, y: number) {
   return null
 }
 
-function onEdgeScrollPointerDown(e: PointerEvent) {
-  if (!props.maximized || props.mobile || isFullscreen.value || e.button !== 0) return
+// The scroller an event in the edge strip should drive, if any.
+function edgeScrollerFor(e: MouseEvent) {
+  if (!props.maximized || props.mobile || isFullscreen.value) return null
   const rect = rootEl.value!.getBoundingClientRect()
-  if (e.clientX < rect.right - EDGE_SCROLL_STRIP) return
+  if (e.clientX < rect.right - EDGE_SCROLL_STRIP) return null
+  // Walk inward from the edge: a scroller can be a narrow strip right at the
+  // edge (e.g. the terminal's native scrollbar overlay) or the whole content.
+  for (let dx = EDGE_SCROLL_STRIP + 1; dx <= 48; dx += 4) {
+    const scroller = findScrollerAt(rect.right - dx, e.clientY)
+    if (scroller) return scroller
+  }
+  return null
+}
+
+function onEdgeScrollPointerDown(e: PointerEvent) {
+  if (e.button !== 0) return
   // Pressing the real scrollbar keeps its native behaviour (track paging etc).
   const t = e.target as HTMLElement
   if (isScrollable(t) && e.offsetX >= t.clientWidth) return
-
-  const scroller = findScrollerAt(rect.right - EDGE_SCROLL_STRIP - 24, e.clientY)
+  const scroller = edgeScrollerFor(e)
   if (!scroller) return
   e.preventDefault()
   e.stopPropagation()
@@ -389,6 +402,16 @@ function onEdgeScrollPointerDown(e: PointerEvent) {
     (ev) => { scroller.scrollTop = startTop + (ev.clientY - startY) * ratio },
     restoreSelection,
   )
+}
+
+// The wheel too: at the edge it may be over padding that scrolls nothing
+// (the terminal's), so send it to the edge scroller unless it's already in it.
+function onEdgeScrollWheel(e: WheelEvent) {
+  const scroller = edgeScrollerFor(e)
+  if (!scroller || scroller.contains(e.target as Node)) return
+  e.preventDefault()
+  const unit = e.deltaMode === WheelEvent.DOM_DELTA_LINE ? 16 : e.deltaMode === WheelEvent.DOM_DELTA_PAGE ? scroller.clientHeight : 1
+  scroller.scrollBy({ top: e.deltaY * unit })
 }
 
 function beginDrag(startX: number, startY: number, originX: number, originY: number, pointerId: number) {
@@ -537,6 +560,7 @@ function startResize(e: PointerEvent, dir: string) {
     }"
     @pointerdown="$emit('focus')"
     @pointerdown.capture="onEdgeScrollPointerDown"
+    @wheel.capture="onEdgeScrollWheel"
   >
     <div class="fwin-titlebar" :class="{ 'fwin-titlebar--dark': darkTitlebar }" @pointerdown="startDrag" @contextmenu.prevent>
       <!-- Mobile is one app at a time: no minimize/close, just a way back. -->
