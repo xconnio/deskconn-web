@@ -938,6 +938,8 @@ onUnmounted(() => {
   min-height: 0;
   overflow: hidden;
   background-color: #000;
+  /* Default wallpaper, same as the mobile app's; a remote one replaces it via the inline backgroundImage. */
+  background-image: linear-gradient(135deg, #0f2027 0%, #203a43 50%, #2c5364 100%);
   transition: filter 0.2s ease;
 }
 
