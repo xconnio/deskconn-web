@@ -167,6 +167,29 @@ async function startShell(tab: TabState) {
   }
 }
 
+// xterm 6 draws its own scrollbar (no arrows, fades out), unlike the native one
+// the other apps get. Overlay a real overflow:auto strip on top of it whose
+// scroll position mirrors the terminal's, one row per clientHeight/rows px.
+function attachNativeScrollbar(term: Terminal) {
+  const bar = document.createElement('div')
+  bar.className = 'native-scrollbar'
+  const spacer = bar.appendChild(document.createElement('div'))
+  // A zero-width box doesn't count toward scroll height, and the scrollbar eats all 15px.
+  spacer.style.width = '1px'
+  term.element!.appendChild(bar)
+
+  const rowPx = () => bar.clientHeight / term.rows
+  const sync = () => {
+    spacer.style.height = `${term.buffer.active.length * rowPx()}px`
+    bar.scrollTop = term.buffer.active.viewportY * rowPx()
+  }
+  term.onScroll(sync)
+  term.onResize(sync)
+  term.buffer.onBufferChange(sync)
+  new ResizeObserver(sync).observe(bar)
+  bar.addEventListener('scroll', () => term.scrollToLine(Math.round(bar.scrollTop / rowPx())))
+}
+
 async function initTab(tab: TabState) {
   const el = termElMap.get(tab.id)
   if (!el) return
@@ -185,6 +208,7 @@ async function initTab(tab: TabState) {
   // Makes http(s) URLs clickable; they open in a new browser tab.
   tab.term.loadAddon(new WebLinksAddon())
   tab.term.open(el)
+  attachNativeScrollbar(tab.term)
   tab.fitAddon.fit()
   tab.term.focus()
 
@@ -1097,5 +1121,24 @@ watch(() => props.focused, (focused) => {
   overflow-y: auto !important;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
+}
+
+/* Replaced by .native-scrollbar. */
+.terminal-body :deep(.xterm-scrollable-element > .scrollbar) {
+  display: none;
+}
+
+/* Same scrollbar as the text editor's (.editor-layout). */
+.terminal-body :deep(.native-scrollbar) {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 15px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  z-index: 11;
+  color-scheme: dark;
+  scrollbar-color: #3a3a3a #000000;
 }
 </style>
