@@ -21,9 +21,16 @@ const props = defineProps<{
   tabs: TabStripTab[]
   activeId: number | null
   newTabTitle: string
+  /** Lets tabs be dragged out (TextEditor drops them into a split pane). */
+  draggableTabs?: boolean
 }>()
 
-const emit = defineEmits<{ switch: [id: number]; close: [id: number, event?: MouseEvent]; add: [] }>()
+const emit = defineEmits<{
+  switch: [id: number]
+  close: [id: number, event?: MouseEvent]
+  add: []
+  'drag-start': [id: number]
+}>()
 
 const { tabsListRef, tabsScrollLeft, tabsScrollMax, updateTabsScroll, scrollTabsBy, scrollTabsToEnd } = useTabScroll()
 
@@ -88,13 +95,23 @@ function onTabsWheel(event: WheelEvent) {
   event.preventDefault()
 }
 
+// A prevented mousedown keeps focus where it is (the terminal/textarea), but
+// it also blocks a native drag from ever starting — so draggable tabs let it
+// through and switch on click instead (a drag never fires one), which also
+// keeps the drag from first swapping out the tab the user is dragging beside.
 function onTabMouseDown(id: number, e: MouseEvent) {
+  if (!props.draggableTabs) e.preventDefault()
   if ((e.target as HTMLElement | null)?.closest('.tab-close')) return
   if (e.button === 1) {
     emit('close', id, e)
     return
   }
-  emit('switch', id)
+  if (!props.draggableTabs) emit('switch', id)
+}
+
+function onTabDragStart(tab: TabStripTab, e: DragEvent) {
+  e.dataTransfer?.setData('text/plain', tab.label)
+  emit('drag-start', tab.id)
 }
 </script>
 
@@ -119,8 +136,11 @@ function onTabMouseDown(id: number, e: MouseEvent) {
         :ref="(el) => setTabButtonEl(tab.id, el as Element | null)"
         class="tab-item"
         :class="{ 'tab-active': tab.id === activeId, 'tab-preview': tab.preview }"
-        @mousedown.prevent="onTabMouseDown(tab.id, $event)"
+        :draggable="draggableTabs"
+        @mousedown="onTabMouseDown(tab.id, $event)"
         @mouseup.prevent
+        @click="draggableTabs && emit('switch', tab.id)"
+        @dragstart="onTabDragStart(tab, $event)"
       >
         <span v-if="tab.dirty" class="tab-dot"></span>
         <span class="tab-label">{{ tab.label }}</span>

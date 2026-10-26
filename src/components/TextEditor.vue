@@ -37,8 +37,10 @@ const MAX_EDIT_SIZE = 10 * 1024 * 1024
 
 type TextEntry = { path: string; name: string; size: number }
 
-interface TabState {
-  id: number
+// One open file's content and load/save/git state. Shared by every tab that
+// shows it, so the same file open in both panes stays a single document:
+// edits show up in both views and a save writes once.
+interface DocState {
   entry: TextEntry | null
   content: string
   originalContent: string
@@ -53,6 +55,11 @@ interface TabState {
   saving: boolean
   saveError: string
   saveConflict: boolean
+}
+
+interface TabState {
+  id: number
+  doc: DocState
   /** Single-click-opened tabs are reusable "preview" slots (VS Code style) —
    * the next single click replaces them instead of piling up a new tab, as
    * long as they're still clean. Double-clicking or editing promotes a tab
@@ -111,37 +118,53 @@ async function bootstrapSession() {
 
 // ── Tabs ────────────────────────────────────────────────────────────────────
 const tabs = ref<TabState[]>([])
-const activeTabId = ref<number | null>(null)
+// Each pane is its own tab group (one pane normally, two when split), with
+// its own strip in the titlebar. A tab belongs to exactly one pane — it owns
+// a single textarea. activeTabId is the focused pane's tab, so Save/Download/
+// Ctrl+S all act on it.
+interface Pane {
+  tabIds: number[]
+  activeId: number | null
+}
+const panes = ref<Pane[]>([{ tabIds: [], activeId: null }])
+const focusedPane = ref(0)
+const activeTabId = computed(() => panes.value[focusedPane.value]?.activeId ?? null)
+const isSplit = computed(() => panes.value.length === 2)
 let nextTabId = 0
-const loadControllers = new Map<number, AbortController>()
+const loadControllers = new Map<DocState, AbortController>()
 
 const activeTab = computed(() => tabs.value.find((t) => t.id === activeTabId.value) ?? null)
 
 function isDirty(tab: TabState): boolean {
-  return tab.content !== tab.originalContent
+  return tab.doc.content !== tab.doc.originalContent
 }
 const activeDirty = computed(() => (activeTab.value ? isDirty(activeTab.value) : false))
 const anyDirty = computed(() => tabs.value.some(isDirty))
 
 function tabLabel(tab: TabState): string {
-  return tab.entry?.name ?? 'Untitled'
+  return tab.doc.entry?.name ?? 'Untitled'
 }
 
-const stripTabs = computed(() => tabs.value.map((t) => ({
-  id: t.id,
-  label: tabLabel(t),
-  dirty: isDirty(t),
-  preview: t.isPreview,
+const paneStrips = computed(() => panes.value.map((pane) => pane.tabIds.flatMap((id) => {
+  const t = tabs.value.find((tab) => tab.id === id)
+  return t ? [{ id: t.id, label: tabLabel(t), dirty: isDirty(t), preview: t.isPreview }] : []
 })))
+
+function paneOf(id: number): number {
+  return panes.value.findIndex((p) => p.tabIds.includes(id))
+}
+/** The pane a tab is currently showing in, or -1 if it's a background tab. */
+function shownIn(id: number): number {
+  return panes.value.findIndex((p) => p.activeId === id)
+}
 
 // reactive() here (not a plain object) so the reference held across the async
 // gap in loadTabContent/performSave/etc. IS the reactive proxy itself — a
 // plain object only becomes reactive when read back out of tabs.value, and
 // mutating the pre-push reference instead bypasses Vue's change tracking
 // entirely (the DOM only catches up on some later, unrelated re-render).
-function createTab(entry: TextEntry | null, isPreview: boolean): TabState {
+function createDoc(entry: TextEntry | null): DocState {
   return reactive({
-    id: nextTabId++,
     entry,
     content: '',
     originalContent: '',
@@ -156,102 +179,322 @@ function createTab(entry: TextEntry | null, isPreview: boolean): TabState {
     saving: false,
     saveError: '',
     saveConflict: false,
-    isPreview,
   })
+}
+
+function createTab(doc: DocState, isPreview: boolean): TabState {
+  const tab: TabState = reactive({ id: nextTabId++, doc, isPreview })
+  tabViews.set(tab.id, createTabView(tab))
+  return tab
+}
+
+function tabById(id: number): TabState | undefined {
+  return tabs.value.find((t) => t.id === id)
+}
+
+function isShared(doc: DocState): boolean {
+  return tabs.value.filter((t) => t.doc === doc).length > 1
+}
+
+/** Registers a new tab and appends it to a pane's strip (the focused one by default). */
+function addTab(tab: TabState, pane = focusedPane.value) {
+  tabs.value.push(tab)
+  panes.value[pane]!.tabIds.push(tab.id)
 }
 
 // focusEditor=false keeps focus where it is, e.g. on the file tree so its
-// arrow-key navigation keeps working after opening a file from it.
+// arrow-key navigation keeps working after opening a file from it. Switching
+// to a tab also focuses the pane it lives in.
 function switchTab(id: number, focusEditor = true) {
-  activeTabId.value = id
+  const pane = paneOf(id)
+  if (pane === -1) return
+  focusedPane.value = pane
+  panes.value[pane]!.activeId = id
   nextTick(() => {
-    updateAvailableWidth()
-    updateLineHeight()
-    if (focusEditor) activeTextareaEl.value?.focus()
+    // preventScroll alone doesn't stop the browser revealing the caret, so the
+    // saved scroll position is put back after focusing.
+    if (focusEditor) textareaElMap.get(id)?.focus({ preventScroll: true })
+    restoreView(id)
   })
 }
 
-function addBlankTab() {
-  const tab = createTab(null, false)
-  tabs.value.push(tab)
+function focusPane(id: number) {
+  const pane = shownIn(id)
+  if (pane !== -1) focusedPane.value = pane
+}
+
+// Takes a tab out of its pane, showing its nearest neighbour (right first)
+// in its place. A split pane left with no tabs closes; the last pane stays.
+function detachTab(id: number) {
+  const paneIdx = paneOf(id)
+  const pane = panes.value[paneIdx]
+  if (!pane) return
+  const idx = pane.tabIds.indexOf(id)
+  pane.tabIds.splice(idx, 1)
+  if (pane.activeId === id) pane.activeId = pane.tabIds[idx] ?? pane.tabIds[idx - 1] ?? null
+  if (pane.tabIds.length === 0 && isSplit.value) {
+    panes.value.splice(paneIdx, 1)
+    focusedPane.value = 0
+  }
+}
+
+// 'row' = left | right, 'column' = top / bottom. Pane 0 is always the
+// left/top one; splitPercent is its share of the split axis.
+const splitDir = ref<'row' | 'column'>('row')
+const SPLIT_MIN_PERCENT = 20
+const splitPercent = ref(50)
+const tabsAreaRef = ref<HTMLElement | null>(null)
+
+// Pointer position along the split axis, as a percentage of the panes area.
+function axisPercent(rect: DOMRect, ev: { clientX: number; clientY: number }): number {
+  return splitDir.value === 'row'
+    ? ((ev.clientX - rect.left) / rect.width) * 100
+    : ((ev.clientY - rect.top) / rect.height) * 100
+}
+
+const toolbarPanesEl = ref<HTMLElement | null>(null)
+function isInlineStrip(pane: number) {
+  return pane === 1 && splitDir.value === 'column'
+}
+
+function startSplitResize(e: PointerEvent) {
+  e.preventDefault()
+  const rect = tabsAreaRef.value?.getBoundingClientRect()
+  if (!rect) return
+  trackPointer((ev) => {
+    splitPercent.value = Math.min(100 - SPLIT_MIN_PERCENT, Math.max(SPLIT_MIN_PERCENT, axisPercent(rect, ev)))
+  })
+}
+
+// ── Drag & drop into panes (tabs from the strip, files from the tree) ──────
+// The source is tracked here rather than carried in dataTransfer: tab ids only
+// mean something inside this window, and a file dragged from another editor
+// window's tree may live on a different desktop.
+type DragSource = { kind: 'tab'; id: number } | { kind: 'file'; entry: TextEntry }
+// Unsplit: within a quarter of an edge splits toward that edge, the middle
+// opens in place. Split: whichever pane is under the pointer.
+type DropZone = 'left' | 'right' | 'top' | 'bottom' | 'center'
+const EDGE_ZONE = 0.25
+const dragSource = ref<DragSource | null>(null)
+const dropZone = ref<DropZone | null>(null)
+// Pane whose tab strip is under the drag, if any.
+const stripDropPane = ref<number | null>(null)
+
+function startTabDrag(id: number) {
+  dragSource.value = { kind: 'tab', id }
+}
+function startFileDrag(entry: TextEntry) {
+  dragSource.value = { kind: 'file', entry: { path: entry.path, name: entry.name, size: entry.size } }
+}
+function endDrag() {
+  dragSource.value = null
+  dropZone.value = null
+  stripDropPane.value = null
+}
+
+function isFirstSide(zone: DropZone) {
+  return zone === 'left' || zone === 'top'
+}
+
+function onDragOver(e: DragEvent) {
+  const rect = tabsAreaRef.value?.getBoundingClientRect()
+  if (!dragSource.value || !rect) return
+  e.preventDefault()
+  if (isSplit.value) {
+    const first = axisPercent(rect, e) < splitPercent.value
+    dropZone.value = splitDir.value === 'row' ? (first ? 'left' : 'right') : (first ? 'top' : 'bottom')
+    return
+  }
+  const x = (e.clientX - rect.left) / rect.width
+  const y = (e.clientY - rect.top) / rect.height
+  const edges = { left: x, right: 1 - x, top: y, bottom: 1 - y }
+  const [nearest, dist] = Object.entries(edges).reduce((a, b) => (b[1] < a[1] ? b : a))
+  dropZone.value = dist > EDGE_ZONE ? 'center' : (nearest as DropZone)
+}
+
+const dropHighlightStyle = computed(() => {
+  const zone = dropZone.value
+  if (!zone || zone === 'center') return { inset: '0' }
+  const size = isSplit.value ? splitPercent.value : 50
+  const [start, length] = isFirstSide(zone) ? [0, size] : [size, 100 - size]
+  return zone === 'left' || zone === 'right'
+    ? { top: '0', bottom: '0', left: `${start}%`, width: `${length}%` }
+    : { left: '0', right: '0', top: `${start}%`, height: `${length}%` }
+})
+
+function onDrop(e: DragEvent) {
+  e.preventDefault()
+  const source = dragSource.value
+  const zone = dropZone.value
+  endDrag()
+  if (!source || !zone) return
+  // Unsplit edge zones open a new pane on that side (unless there's nothing
+  // to sit beside); otherwise the drop lands in the pane under the pointer.
+  const edge = !isSplit.value && zone !== 'center' && panes.value[0]!.tabIds.length > 0
+  const lone = panes.value[0]!.tabIds.length === 1
+  const pane = edge ? splitTo(zone) : isSplit.value && !isFirstSide(zone) ? 1 : 0
+  if (source.kind === 'file') {
+    openFileInTab(source.entry, true, true, pane)
+    return
+  }
+  const tab = tabById(source.id)
+  if (!tab) return
+  // Splitting off a pane's only tab shows the same file in both panes
+  // rather than moving it and leaving the original pane empty.
+  if (edge && lone) {
+    const copy = createTab(tab.doc, false)
+    addTab(copy, pane)
+    switchTab(copy.id)
+    return
+  }
+  moveTabToPane(tab.id, pane)
+}
+
+function splitTo(zone: DropZone): number {
+  splitDir.value = zone === 'left' || zone === 'right' ? 'row' : 'column'
+  splitPercent.value = 50
+  const pane = isFirstSide(zone) ? 0 : 1
+  panes.value.splice(pane, 0, { tabIds: [], activeId: null })
+  return pane
+}
+
+// Over a strip, the pane below lights up too — that's where the tab will show.
+function onStripDragOver(e: DragEvent, pane: number) {
+  if (!dragSource.value) return
+  e.preventDefault()
+  stripDropPane.value = pane
+  if (!isSplit.value) dropZone.value = 'center'
+  else if (splitDir.value === 'row') dropZone.value = pane === 0 ? 'left' : 'right'
+  else dropZone.value = pane === 0 ? 'top' : 'bottom'
+}
+
+// dragleave also fires when moving onto the strip's own tabs — ignore those.
+function onStripDragLeave(e: DragEvent) {
+  if ((e.currentTarget as Node).contains(e.relatedTarget as Node | null)) return
+  stripDropPane.value = null
+  dropZone.value = null
+}
+
+function onStripDrop(pane: number) {
+  const source = dragSource.value
+  endDrag()
+  if (source?.kind === 'file') openFileInTab(source.entry, true, true, pane)
+  else if (source) moveTabToPane(source.id, pane)
+}
+
+// A pane already showing the same document just switches to that tab — the
+// moved one would be a duplicate view of it, so it's dropped.
+function moveTabToPane(id: number, target: number) {
+  const tab = tabById(id)
+  const pane = panes.value[target]
+  if (!tab || !pane) return
+  const twin = pane.tabIds.map(tabById).find((t) => t && t !== tab && t.doc === tab.doc)
+  if (twin) {
+    closeTabImmediate(id)
+    switchTab(twin.id)
+    return
+  }
+  if (!pane.tabIds.includes(id)) {
+    // Held by reference: detaching can close the source pane, shifting indexes.
+    detachTab(id)
+    pane.tabIds.push(id)
+  }
+  switchTab(id)
+}
+
+function addBlankTab(pane = focusedPane.value) {
+  const tab = createTab(createDoc(null), false)
+  addTab(tab, pane)
   switchTab(tab.id)
 }
 
-async function loadGitBaseline(tab: TabState) {
+async function loadGitBaseline(doc: DocState) {
   const session = activeSession.value
-  if (!tab.entry || !session || !encryptionKeys.value) {
-    tab.gitBaselineLoaded = true
+  if (!doc.entry || !session || !encryptionKeys.value) {
+    doc.gitBaselineLoaded = true
     return
   }
   try {
-    const result = await fetchGitOriginal(session, encryptionKeys.value, tab.entry.path)
-    tab.gitOriginalContent = result.is_new ? '' : result.content
-    tab.gitIsRepo = result.is_repo
-    tab.gitUntracked = result.untracked
-    tab.gitIgnored = result.ignored
+    const result = await fetchGitOriginal(session, encryptionKeys.value, doc.entry.path)
+    doc.gitOriginalContent = result.is_new ? '' : result.content
+    doc.gitIsRepo = result.is_repo
+    doc.gitUntracked = result.untracked
+    doc.gitIgnored = result.ignored
   } catch {
-    tab.gitOriginalContent = ''
-    tab.gitIsRepo = false
-    tab.gitUntracked = false
-    tab.gitIgnored = false
+    doc.gitOriginalContent = ''
+    doc.gitIsRepo = false
+    doc.gitUntracked = false
+    doc.gitIgnored = false
   } finally {
-    tab.gitBaselineLoaded = true
+    doc.gitBaselineLoaded = true
   }
 }
 
-async function loadTabContent(tab: TabState) {
+async function loadTabContent(doc: DocState) {
   const session = activeSession.value
-  if (!tab.entry || !session) return
+  if (!doc.entry || !session) return
 
-  tab.loading = true
-  tab.loadError = ''
-  tab.loadedBytes = 0
-  tab.content = ''
-  tab.gitBaselineLoaded = false
+  doc.loading = true
+  doc.loadError = ''
+  doc.loadedBytes = 0
+  doc.content = ''
+  doc.gitBaselineLoaded = false
 
   // Entries opened by path (the Open File picker) don't know their size up
   // front — refresh it via a stat-only browse before the size gate below.
-  let size = tab.entry.size
+  let size = doc.entry.size
   if (size <= 0 && fileBrowser.value) {
     try {
-      const browse = await fileBrowser.value.browseFiles(tab.entry.path)
+      const browse = await fileBrowser.value.browseFiles(doc.entry.path)
       size = browse.size
-      tab.entry = { ...tab.entry, size }
+      doc.entry = { ...doc.entry, size }
     } catch (err) {
-      tab.loadError = err instanceof Error ? err.message : 'Failed to open file'
-      tab.loading = false
+      doc.loadError = err instanceof Error ? err.message : 'Failed to open file'
+      doc.loading = false
       return
     }
   }
 
   if (size > MAX_EDIT_SIZE) {
-    tab.loadError = `File is too large to edit (max ${formatSize(MAX_EDIT_SIZE)}).`
-    tab.loading = false
+    doc.loadError = `File is too large to edit (max ${formatSize(MAX_EDIT_SIZE)}).`
+    doc.loading = false
     return
   }
 
   const controller = new AbortController()
-  loadControllers.set(tab.id, controller)
+  loadControllers.set(doc, controller)
   const decoder = new TextDecoder('utf-8', { fatal: false })
 
   try {
-    await streamFileCat(session, props.realm, tab.entry.path, (chunk) => {
-      tab.loadedBytes += chunk.length
-      tab.content += decoder.decode(chunk, { stream: true })
+    await streamFileCat(session, props.realm, doc.entry.path, (chunk) => {
+      doc.loadedBytes += chunk.length
+      doc.content += decoder.decode(chunk, { stream: true })
     }, controller.signal)
-    tab.content += decoder.decode()
-    tab.originalContent = tab.content
+    doc.content += decoder.decode()
+    doc.originalContent = doc.content
   } catch (err) {
-    tab.loadError = err instanceof Error ? err.message : 'Failed to load file'
+    doc.loadError = err instanceof Error ? err.message : 'Failed to load file'
   } finally {
-    tab.loading = false
+    doc.loading = false
   }
 
-  void loadGitBaseline(tab)
+  void loadGitBaseline(doc)
 }
 
-function findTabByPath(path: string): TabState | undefined {
-  return tabs.value.find((t) => t.entry?.path === path)
+/** Optionally limited to tabs in one pane. */
+function findTabByPath(path: string, pane?: number): TabState | undefined {
+  const ids = pane === undefined ? null : panes.value[pane]?.tabIds
+  return tabs.value.find((t) => t.doc.entry?.path === path && (!ids || ids.includes(t.id)))
+}
+
+// The already-open document for a file (from a tab in either pane), or a new
+// one that starts loading.
+function docFor(entry: TextEntry): DocState {
+  const open = findTabByPath(entry.path)
+  if (open) return open.doc
+  const doc = createDoc(entry)
+  void loadTabContent(doc)
+  return doc
 }
 
 /** pinned=false is a single click (preview, reused/replaced by the next one);
@@ -261,33 +504,33 @@ function findTabByPath(path: string): TabState | undefined {
 // around once a real file is opened — it gets replaced in place rather than
 // left dangling next to a newly added tab.
 function isReplaceableBlankTab(tab: TabState): boolean {
-  return !tab.entry && !isDirty(tab)
+  return !tab.doc.entry && !isDirty(tab)
 }
 
-function openFileInTab(target: TextEntry, pinned: boolean, focusEditor = true) {
-  const existing = findTabByPath(target.path)
+// Opens into a pane (the focused one by default). A file already open in the
+// other pane gets a second tab here sharing the same document.
+function openFileInTab(target: TextEntry, pinned: boolean, focusEditor = true, pane = focusedPane.value) {
+  const existing = findTabByPath(target.path, pane)
   if (existing) {
     if (pinned) existing.isPreview = false
     switchTab(existing.id, focusEditor)
     return
   }
 
-  const active = activeTab.value
+  const active = tabById(panes.value[pane]?.activeId ?? -1)
   const reusePreview = !pinned && active && active.isPreview && !isDirty(active)
   const reuseBlank = active && isReplaceableBlankTab(active)
   if (reusePreview || reuseBlank) {
-    loadControllers.get(active.id)?.abort()
-    active.entry = target
+    if (!isShared(active.doc)) loadControllers.get(active.doc)?.abort()
+    active.doc = docFor(target)
     active.isPreview = !pinned
-    void loadTabContent(active)
     switchTab(active.id, focusEditor)
     return
   }
 
-  const tab = createTab(target, !pinned)
-  tabs.value.push(tab)
+  const tab = createTab(docFor(target), !pinned)
+  addTab(tab, pane)
   switchTab(tab.id, focusEditor)
-  void loadTabContent(tab)
 }
 
 // ── Closing tabs / the window ──────────────────────────────────────────────
@@ -306,28 +549,30 @@ const closeConfirmMessage = computed(() => {
   return windowCloseMessage()
 })
 function windowCloseMessage() {
-  const n = tabs.value.filter(isDirty).length
+  const n = new Set(tabs.value.filter(isDirty).map((t) => t.doc)).size
   return `${n} file${n === 1 ? '' : 's'} have unsaved changes. Close this window anyway?`
 }
 
 function closeTabImmediate(id: number) {
-  loadControllers.get(id)?.abort()
-  loadControllers.delete(id)
   const idx = tabs.value.findIndex((t) => t.id === id)
   if (idx === -1) return
-  tabs.value.splice(idx, 1)
-  if (activeTabId.value === id) {
-    const next = tabs.value[idx] ?? tabs.value[idx - 1]
-    activeTabId.value = next ? next.id : null
-    if (next) nextTick(updateAvailableWidth)
+  const { doc } = tabs.value[idx]!
+  if (!isShared(doc)) {
+    loadControllers.get(doc)?.abort()
+    loadControllers.delete(doc)
   }
+  tabs.value.splice(idx, 1)
+  tabViews.delete(id)
+  viewStates.delete(id)
+  detachTab(id)
 }
 
 function requestCloseTab(id: number, e?: Event) {
   e?.stopPropagation()
   const tab = tabs.value.find((t) => t.id === id)
   if (!tab) return
-  if (isDirty(tab)) {
+  // Another tab still showing the same document keeps the changes alive.
+  if (isDirty(tab) && !isShared(tab.doc)) {
     pendingClose.value = { kind: 'tab', tab }
     return
   }
@@ -388,21 +633,23 @@ const SIDEBAR_MIN_WIDTH = 160
 const SIDEBAR_MAX_WIDTH = 480
 const sidebarWidth = ref(240)
 
-function startSidebarResize(e: PointerEvent) {
-  e.preventDefault()
-  const startX = e.clientX
-  const startWidth = sidebarWidth.value
-
-  function onMove(ev: PointerEvent) {
-    const next = startWidth + (ev.clientX - startX)
-    sidebarWidth.value = Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, next))
-  }
+function trackPointer(onMove: (ev: PointerEvent) => void) {
   function onUp() {
     window.removeEventListener('pointermove', onMove)
     window.removeEventListener('pointerup', onUp)
   }
   window.addEventListener('pointermove', onMove)
   window.addEventListener('pointerup', onUp)
+}
+
+function startSidebarResize(e: PointerEvent) {
+  e.preventDefault()
+  const startX = e.clientX
+  const startWidth = sidebarWidth.value
+  trackPointer((ev) => {
+    const next = startWidth + (ev.clientX - startX)
+    sidebarWidth.value = Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, next))
+  })
 }
 
 type PickerState = { mode: 'open-file' | 'open-folder' | 'save-as'; targetTab?: TabState; initialPath?: string }
@@ -414,7 +661,7 @@ function dirOf(path: string): string {
 }
 
 function openSaveAsPicker(tab: TabState) {
-  const initialPath = tab.entry ? dirOf(tab.entry.path) : openedFolderPath.value || undefined
+  const initialPath = tab.doc.entry ? dirOf(tab.doc.entry.path) : openedFolderPath.value || undefined
   picker.value = { mode: 'save-as', targetTab: tab, initialPath }
 }
 
@@ -463,7 +710,7 @@ function onPickerConfirm(path: string) {
     const name = path.split('/').pop() || path
     openFileInTab({ path, name, size: 0 }, true)
   } else if (p.mode === 'save-as' && p.targetTab) {
-    void createNewFile(p.targetTab, path)
+    void createNewFile(p.targetTab.doc, path)
   }
 }
 
@@ -484,87 +731,85 @@ function flashSaved() {
 }
 
 async function saveTab(tab: TabState) {
-  if (!isDirty(tab) || tab.saving) return
-  if (!tab.entry) {
+  if (!isDirty(tab) || tab.doc.saving) return
+  if (!tab.doc.entry) {
     openSaveAsPicker(tab)
     return
   }
-  await performSave(tab)
+  await performSave(tab.doc)
 }
 
-async function performSave(tab: TabState) {
+async function performSave(doc: DocState) {
   const session = activeSession.value
-  if (!session || !tab.entry) return
-  tab.saving = true
-  tab.saveError = ''
-  tab.saveConflict = false
+  if (!session || !doc.entry) return
+  doc.saving = true
+  doc.saveError = ''
+  doc.saveConflict = false
 
   try {
-    const patch = buildEditPatch(tab.originalContent, tab.content)
+    const patch = buildEditPatch(doc.originalContent, doc.content)
     const keys = await sessionEncryptionStore.getOrExchange(session, props.realm)
-    const payloadBytes = new TextEncoder().encode(JSON.stringify({ path: tab.entry.path, patch }))
+    const payloadBytes = new TextEncoder().encode(JSON.stringify({ path: doc.entry.path, patch }))
     const encrypted = encryptPayload(payloadBytes, keys.encryptKey)
 
     const result = await session.call(procedureFileEdit, [encrypted])
     const encryptedResult = result.args?.[0]
     if (encryptedResult) decryptPayload(encryptedResult as Uint8Array, keys.decryptKey)
 
-    tab.originalContent = tab.content
-    notifyFileChanged(props.realm, tab.entry.path)
+    doc.originalContent = doc.content
+    notifyFileChanged(props.realm, doc.entry.path)
     flashSaved()
   } catch (err) {
-    tab.saveConflict = isEditConflictError(err)
+    doc.saveConflict = isEditConflictError(err)
     if (isDesktopOfflineError(err)) sessionCacheStore.reportUnreachable(props.realm)
-    tab.saveError = formatDesktopError(err, 'Failed to save file')
+    doc.saveError = formatDesktopError(err, 'Failed to save file')
   } finally {
-    tab.saving = false
+    doc.saving = false
   }
 }
 
 // file.edit only patches a file that already exists — a brand-new destination
 // (first save of an untitled tab, or "Save As" to a new path) goes through
 // file.upload instead, which creates-or-overwrites unconditionally.
-async function createNewFile(tab: TabState, fullPath: string) {
+async function createNewFile(doc: DocState, fullPath: string) {
   const session = activeSession.value
   if (!session) return
   const lastSlash = fullPath.lastIndexOf('/')
   const dir = lastSlash > 0 ? fullPath.slice(0, lastSlash) : '/'
   const name = fullPath.slice(lastSlash + 1)
 
-  tab.saving = true
-  tab.saveError = ''
-  tab.saveConflict = false
+  doc.saving = true
+  doc.saveError = ''
+  doc.saveConflict = false
   try {
-    const blob = new Blob([tab.content], { type: 'text/plain' })
+    const blob = new Blob([doc.content], { type: 'text/plain' })
     await uploadFileToPath(session, props.realm, dir, name, blob)
-    tab.entry = { path: fullPath, name, size: blob.size }
-    tab.originalContent = tab.content
-    void loadGitBaseline(tab)
+    doc.entry = { path: fullPath, name, size: blob.size }
+    doc.originalContent = doc.content
+    void loadGitBaseline(doc)
     flashSaved()
   } catch (err) {
-    tab.saveError = formatDesktopError(err, 'Failed to save file')
+    doc.saveError = formatDesktopError(err, 'Failed to save file')
   } finally {
-    tab.saving = false
+    doc.saving = false
   }
 }
 
 function downloadTab(tab: TabState) {
-  downloadBlob(new Blob([tab.content], { type: 'text/plain' }), tabLabel(tab) === 'Untitled' ? 'untitled.txt' : tabLabel(tab))
+  downloadBlob(new Blob([tab.doc.content], { type: 'text/plain' }), tabLabel(tab) === 'Untitled' ? 'untitled.txt' : tabLabel(tab))
 }
 
-async function reloadActiveTab() {
-  const tab = activeTab.value
-  if (!tab || !tab.entry) return
+async function reloadTab(tab: TabState) {
+  if (!tab.doc.entry) return
   if (isDirty(tab) && !window.confirm('Reload will discard your unsaved changes. Continue?')) return
-  loadControllers.get(tab.id)?.abort()
-  tab.saveError = ''
-  tab.saveConflict = false
-  await loadTabContent(tab)
+  loadControllers.get(tab.doc)?.abort()
+  tab.doc.saveError = ''
+  tab.doc.saveConflict = false
+  await loadTabContent(tab.doc)
 }
 
-// ── Gutter / wrap (unchanged algorithm from the single-file editor, just
-// retargeted to whichever tab is currently active — only one tab is ever
-// visible/interactive at a time, so one shared measurement is enough). ──────
+// ── Gutter / wrap — computed per tab (see createTabView) since a split shows
+// two tabs at once; hidden tabs never read theirs, so they cost nothing. ─────
 // reactive() (not a plain Map) — activeTextareaEl below is read inside a
 // watch(), which evaluates it eagerly on the "pre" flush, before the newly
 // active tab's element has actually mounted. With a plain Map, that early
@@ -577,8 +822,19 @@ async function reloadActiveTab() {
 const textareaElMap = reactive(new Map<number, HTMLTextAreaElement>())
 const gutterElMap = reactive(new Map<number, HTMLElement>())
 function setTextareaEl(id: number, el: Element | null) {
-  if (el) textareaElMap.set(id, el as HTMLTextAreaElement)
-  else textareaElMap.delete(id)
+  const prev = textareaElMap.get(id)
+  if (el === prev) return
+  if (prev) resizeObserver.unobserve(prev)
+  if (el) {
+    textareaElMap.set(id, el as HTMLTextAreaElement)
+    resizeObserver.observe(el)
+    // A fresh textarea's caret sits at the end of the value it was given;
+    // start at the top instead (or where this tab was, if it's remounting).
+    if (!viewStates.has(id)) viewStates.set(id, { top: 0, start: 0, end: 0 })
+    restoreView(id)
+  } else {
+    textareaElMap.delete(id)
+  }
 }
 function setGutterEl(id: number, el: Element | null) {
   if (el) gutterElMap.set(id, el as HTMLElement)
@@ -586,7 +842,6 @@ function setGutterEl(id: number, el: Element | null) {
 }
 
 const activeTextareaEl = computed(() => (activeTabId.value !== null ? textareaElMap.get(activeTabId.value) ?? null : null))
-const activeGutterEl = computed(() => (activeTabId.value !== null ? gutterElMap.get(activeTabId.value) ?? null : null))
 
 // Bound to more than just @scroll (see the textarea in the template: also
 // @input/@mousedown/@click/@keyup/@focus) — the browser scrolls a focused
@@ -601,11 +856,45 @@ const activeGutterEl = computed(() => (activeTabId.value !== null ? gutterElMap.
 // corrects the gutter before that mapping happens, not just for the next
 // interaction. Re-syncing on every interaction that could plausibly move
 // the caret closes the window instead of chasing the exact browser trigger.
-function syncGutterScroll() {
-  const top = activeTextareaEl.value?.scrollTop ?? 0
-  if (activeGutterEl.value) activeGutterEl.value.scrollTop = top
-  if (activeHighlightEl.value) activeHighlightEl.value.scrollTop = top
+function syncGutterScroll(id: number) {
+  const textarea = textareaElMap.get(id)
+  const top = textarea?.scrollTop ?? 0
+  // Hidden (v-show) textareas report 0 for everything — don't record that.
+  if (textarea?.clientHeight) {
+    viewStates.set(id, { top, start: textarea.selectionStart, end: textarea.selectionEnd })
+  }
+  const gutter = gutterElMap.get(id)
+  if (gutter) gutter.scrollTop = top
+  const highlight = highlightElMap.get(id)
+  if (highlight) highlight.scrollTop = top
 }
+
+// ── Per-tab scroll position and caret ──────────────────────────────────────
+// The browser forgets or moves both behind the user's back: a v-show-hidden
+// textarea can come back scrolled to the top, wheel-scrolling never moves the
+// caret, focusing scrolls to wherever the caret is, and any programmatic
+// value change (the other pane editing the same document) throws the caret
+// to the end. So each tab's last real position is recorded (syncGutterScroll
+// runs on every scroll/caret-moving event) and put back when needed.
+interface ViewState { top: number; start: number; end: number }
+const viewStates = new Map<number, ViewState>()
+
+function restoreView(id: number) {
+  const textarea = textareaElMap.get(id)
+  const view = viewStates.get(id)
+  if (!textarea?.clientHeight || !view) return
+  textarea.setSelectionRange(view.start, view.end)
+  textarea.scrollTop = view.top
+  syncGutterScroll(id)
+}
+
+// Another tab showing the same document just changed it — keep every view
+// the user isn't typing in where it was.
+watch(() => tabs.value.map((t) => t.doc.content), () => {
+  for (const [id, textarea] of textareaElMap) {
+    if (textarea !== document.activeElement) restoreView(id)
+  }
+}, { flush: 'post' })
 
 // ── Syntax highlighting: a <pre> of highlight.js markup sits under a
 // transparent-text textarea, wrapped and scrolled identically, so the caret,
@@ -615,14 +904,17 @@ const hljs = shallowRef<Hljs | null>(null)
 // Loaded on demand — the full build (~190 languages) is big.
 void import('highlight.js').then((m) => { hljs.value = m.default })
 
-const highlightElMap = reactive(new Map<number, HTMLElement>())
+const highlightElMap = new Map<number, HTMLElement>()
+// A freshly mounted layer (tab shown, highlighter just loaded) starts at the
+// top, so sync it to the textarea's current scroll right away.
 function setHighlightEl(id: number, el: Element | null) {
-  if (el) highlightElMap.set(id, el as HTMLElement)
-  else highlightElMap.delete(id)
+  if (!el) {
+    highlightElMap.delete(id)
+  } else if (highlightElMap.get(id) !== el) {
+    highlightElMap.set(id, el as HTMLElement)
+    syncGutterScroll(id)
+  }
 }
-const activeHighlightEl = computed(() => (activeTabId.value !== null ? highlightElMap.get(activeTabId.value) ?? null : null))
-// A freshly shown layer (tab switch, highlighter just loaded) starts at the top.
-watch(activeHighlightEl, syncGutterScroll)
 
 // Whole file names, then extensions highlight.js has no alias for. Anything
 // else is tried as an extension directly (py, go, rs, ts, dart, json…).
@@ -653,29 +945,11 @@ function languageFor(name: string, lib: Hljs): string | null {
 // stays plain. Incremental (per-line) highlighting if big files matter.
 const MAX_HIGHLIGHT_SIZE = 256 * 1024
 
-const highlightedHtml = computed(() => {
-  const tab = activeTab.value
-  const lib = hljs.value
-  if (!tab || !lib || !tab.entry || tab.content.length > MAX_HIGHLIGHT_SIZE) return ''
-  const lang = languageFor(tab.entry.name, lib)
-  if (!lang) return ''
-  // Trailing newline: a <pre> drops a final empty line that the textarea shows.
-  return lib.highlight(tab.content, { language: lang, ignoreIllegals: true }).value + '\n'
-})
-
-const availableWidth = ref(0)
+// Text width (textarea minus padding) per tab, kept current by resizeObserver.
+const availableWidthMap = reactive(new Map<number, number>())
+// Font and line height are the same for every textarea (shared CSS), so the
+// first one measured sets them for all.
 let measureCtx: CanvasRenderingContext2D | null = null
-
-function getMeasureCtx(): CanvasRenderingContext2D | null {
-  if (measureCtx || !activeTextareaEl.value) return measureCtx
-  const canvas = document.createElement('canvas')
-  measureCtx = canvas.getContext('2d')
-  if (measureCtx) {
-    const style = window.getComputedStyle(activeTextareaEl.value)
-    measureCtx.font = `${style.fontSize} ${style.fontFamily}`
-  }
-  return measureCtx
-}
 
 function wrappedRowCount(line: string, ctx: CanvasRenderingContext2D, maxWidth: number): number {
   if (maxWidth <= 0) return 1
@@ -711,48 +985,28 @@ interface GutterLayout {
   lineRows: number[]
 }
 
-const gutterLayout = computed<GutterLayout>(() => {
-  const tab = activeTab.value
-  if (!tab) return { text: '', lineTop: [], lineRows: [] }
-  const lines = tab.content.split('\n')
-  const ctx = getMeasureCtx()
-  let text = ''
-  const lineTop: number[] = []
-  const lineRows: number[] = []
-  let rowsSoFar = 0
-  for (let i = 0; i < lines.length; i++) {
-    const rows = ctx ? wrappedRowCount(lines[i]!, ctx, availableWidth.value) : 1
-    lineTop.push(rowsSoFar)
-    lineRows.push(rows)
-    text += (i + 1) + '\n'.repeat(rows)
-    rowsSoFar += rows
-  }
-  return { text, lineTop, lineRows }
-})
-
-const gutterText = computed(() => gutterLayout.value.text)
-
-let resizeObserver: ResizeObserver | null = null
-
-function updateAvailableWidth() {
-  const textarea = activeTextareaEl.value
-  if (!textarea) return
-  const style = window.getComputedStyle(textarea)
-  const padding = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight)
-  availableWidth.value = textarea.clientWidth - padding
-}
-
 // Measured (not hardcoded from the 0.85rem/1.6 CSS values) so it stays correct
 // regardless of the root font-size the line-height rem/multiplier resolves
 // against — used to place diffMarkers' pixel offsets.
 const lineHeightPx = ref(20)
 
-function updateLineHeight() {
-  const textarea = activeTextareaEl.value
-  if (!textarea) return
-  const lh = parseFloat(window.getComputedStyle(textarea).lineHeight)
-  if (Number.isFinite(lh) && lh > 0) lineHeightPx.value = lh
-}
+// Fires on mount and whenever a textarea is resized or shown again (v-show
+// takes it from 0 to its real size). A hidden one (0 wide) keeps its last width.
+const resizeObserver = new ResizeObserver((entries) => {
+  for (const { target } of entries) {
+    const textarea = target as HTMLTextAreaElement
+    if (!textarea.clientWidth) continue
+    const style = window.getComputedStyle(textarea)
+    if (!measureCtx) {
+      measureCtx = document.createElement('canvas').getContext('2d')
+      if (measureCtx) measureCtx.font = `${style.fontSize} ${style.fontFamily}`
+    }
+    const padding = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight)
+    availableWidthMap.set(Number(textarea.dataset.tabId), textarea.clientWidth - padding)
+    const lh = parseFloat(style.lineHeight)
+    if (Number.isFinite(lh) && lh > 0) lineHeightPx.value = lh
+  }
+})
 
 function handleTextareaKeydown(e: KeyboardEvent) {
   if (e.key !== 'Tab') return
@@ -761,12 +1015,12 @@ function handleTextareaKeydown(e: KeyboardEvent) {
   if (!tab || !textarea) return
   e.preventDefault()
 
-  const value = tab.content
+  const value = tab.doc.content
   const start = textarea.selectionStart
   const end = textarea.selectionEnd
 
   if (!e.shiftKey && start === end) {
-    tab.content = value.slice(0, start) + '\t' + value.slice(end)
+    tab.doc.content = value.slice(0, start) + '\t' + value.slice(end)
     nextTick(() => { textarea.selectionStart = textarea.selectionEnd = start + 1 })
     return
   }
@@ -778,7 +1032,7 @@ function handleTextareaKeydown(e: KeyboardEvent) {
 
   if (!e.shiftKey) {
     const indented = selectedLines.map((line) => '\t' + line).join('\n')
-    tab.content = value.slice(0, lineStart) + indented + value.slice(lineEnd)
+    tab.doc.content = value.slice(0, lineStart) + indented + value.slice(lineEnd)
     nextTick(() => {
       textarea.selectionStart = start + 1
       textarea.selectionEnd = end + indented.length - (lineEnd - lineStart)
@@ -797,27 +1051,14 @@ function handleTextareaKeydown(e: KeyboardEvent) {
     return line.slice(removed)
   }).join('\n')
 
-  tab.content = value.slice(0, lineStart) + outdented + value.slice(lineEnd)
+  tab.doc.content = value.slice(0, lineStart) + outdented + value.slice(lineEnd)
   nextTick(() => {
     textarea.selectionStart = Math.max(lineStart, start - firstLineRemoved)
     textarea.selectionEnd = Math.max(textarea.selectionStart, end - totalRemoved)
   })
 }
 
-watch(activeTextareaEl, (el) => {
-  resizeObserver?.disconnect()
-  resizeObserver = null
-  if (!el) return
-  updateAvailableWidth()
-  updateLineHeight()
-  resizeObserver = new ResizeObserver(() => {
-    updateAvailableWidth()
-    updateLineHeight()
-  })
-  resizeObserver.observe(el)
-})
-
-// ── Git change markers (added = green, modified = blue) for the active tab —
+// ── Git change markers (added = green, modified = blue) for each shown tab —
 // rendered as a VS Code/IntelliJ-style bar beside the line numbers rather
 // than coloring the text itself (colored spans, needed for individually-
 // styled text, only ever work when the editor renders as HTML; the bar only
@@ -825,33 +1066,69 @@ watch(activeTextareaEl, (el) => {
 // divs — no v-html, no risk of the scoped-CSS-vs-v-html mismatch that broke
 // text coloring, and no need for the transparent-textarea-plus-overlay trick
 // that was doing all that work just to make colored text visible). ─────────
-const lineDiffMap = computed<LineDiffMap>(() => {
-  const tab = activeTab.value
-  if (!tab || !tab.gitBaselineLoaded || !tab.gitIsRepo || tab.gitUntracked || tab.gitIgnored) return new Map()
-  return computeLineDiff(tab.gitOriginalContent, tab.content)
-})
-
 interface DiffMarker {
   top: number
   height: number
   kind: 'added' | 'modified'
 }
 
-const diffMarkers = computed<DiffMarker[]>(() => {
-  const map = lineDiffMap.value
-  if (map.size === 0) return []
-  const { lineTop, lineRows } = gutterLayout.value
-  const markers: DiffMarker[] = []
-  for (const [lineNum, kind] of map) {
-    const idx = lineNum - 1
-    markers.push({
-      top: (lineTop[idx] ?? 0) * lineHeightPx.value,
-      height: (lineRows[idx] ?? 1) * lineHeightPx.value,
-      kind,
-    })
-  }
-  return markers
-})
+// Per-tab derived view state. Computeds are lazy, so only the tabs a pane
+// actually renders ever highlight/lay out their content.
+function createTabView(tab: TabState) {
+  const highlightedHtml = computed(() => {
+    const lib = hljs.value
+    if (!lib || !tab.doc.entry || tab.doc.content.length > MAX_HIGHLIGHT_SIZE) return ''
+    const lang = languageFor(tab.doc.entry.name, lib)
+    if (!lang) return ''
+    // Trailing newline: a <pre> drops a final empty line that the textarea shows.
+    return lib.highlight(tab.doc.content, { language: lang, ignoreIllegals: true }).value + '\n'
+  })
+
+  const gutterLayout = computed<GutterLayout>(() => {
+    const lines = tab.doc.content.split('\n')
+    const width = availableWidthMap.get(tab.id) ?? 0
+    let text = ''
+    const lineTop: number[] = []
+    const lineRows: number[] = []
+    let rowsSoFar = 0
+    for (let i = 0; i < lines.length; i++) {
+      const rows = measureCtx ? wrappedRowCount(lines[i]!, measureCtx, width) : 1
+      lineTop.push(rowsSoFar)
+      lineRows.push(rows)
+      text += (i + 1) + '\n'.repeat(rows)
+      rowsSoFar += rows
+    }
+    return { text, lineTop, lineRows }
+  })
+
+  const lineDiffMap = computed<LineDiffMap>(() => {
+    if (!tab.doc.gitBaselineLoaded || !tab.doc.gitIsRepo || tab.doc.gitUntracked || tab.doc.gitIgnored) return new Map()
+    return computeLineDiff(tab.doc.gitOriginalContent, tab.doc.content)
+  })
+
+  const diffMarkers = computed<DiffMarker[]>(() => {
+    const map = lineDiffMap.value
+    if (map.size === 0) return []
+    const { lineTop, lineRows } = gutterLayout.value
+    const markers: DiffMarker[] = []
+    for (const [lineNum, kind] of map) {
+      const idx = lineNum - 1
+      markers.push({
+        top: (lineTop[idx] ?? 0) * lineHeightPx.value,
+        height: (lineRows[idx] ?? 1) * lineHeightPx.value,
+        kind,
+      })
+    }
+    return markers
+  })
+
+  return { highlightedHtml, gutterLayout, diffMarkers }
+}
+
+const tabViews = new Map<number, ReturnType<typeof createTabView>>()
+function viewOf(tab: TabState) {
+  return tabViews.get(tab.id)!
+}
 
 // ── Title / keyboard ─────────────────────────────────────────────────────
 watch([activeTab, activeDirty], () => {
@@ -870,15 +1147,16 @@ function handleKeydown(e: KeyboardEvent) {
 
 onMounted(async () => {
   document.addEventListener('keydown', handleKeydown)
+  // Clears a drag that ended anywhere but our drop overlay (Esc, outside).
+  document.addEventListener('dragend', endDrag)
 
   await bootstrapSession()
   if (initError.value) return
 
   if (props.entry) {
-    const tab = createTab(props.entry, false)
-    tabs.value.push(tab)
-    activeTabId.value = tab.id
-    void loadTabContent(tab)
+    const tab = createTab(docFor(props.entry), false)
+    addTab(tab)
+    panes.value[0]!.activeId = tab.id
   } else {
     addBlankTab()
   }
@@ -887,9 +1165,10 @@ onMounted(async () => {
 
 onUnmounted(() => {
   document.removeEventListener('keydown', handleKeydown)
+  document.removeEventListener('dragend', endDrag)
   for (const controller of loadControllers.values()) controller.abort()
   if (savedFlashTimer) clearTimeout(savedFlashTimer)
-  resizeObserver?.disconnect()
+  resizeObserver.disconnect()
 })
 </script>
 
@@ -900,15 +1179,15 @@ onUnmounted(() => {
       <button
         class="editor-action-btn"
         @click="activeTab && saveTab(activeTab)"
-        :disabled="!activeTab || !activeDirty || activeTab.saving"
+        :disabled="!activeTab || !activeDirty || activeTab.doc.saving"
         title="Save (Ctrl+S)"
       >
-        <i class="bi" :class="activeTab?.saving ? 'bi-hourglass-split' : 'bi-save'"></i>
+        <i class="bi" :class="activeTab?.doc.saving ? 'bi-hourglass-split' : 'bi-save'"></i>
       </button>
       <button
         class="editor-action-btn"
         @click="activeTab && downloadTab(activeTab)"
-        :disabled="!activeTab || activeTab.loading || !!activeTab.loadError"
+        :disabled="!activeTab || activeTab.doc.loading || !!activeTab.doc.loadError"
         title="Download"
       >
         <i class="bi bi-download"></i>
@@ -920,14 +1199,7 @@ onUnmounted(() => {
         <button ref="filesMenuBtnRef" class="files-menu-btn" @click="toggleFilesMenu">
           <i class="bi bi-folder2"></i><span>Files</span>
         </button>
-        <TabStrip
-          :tabs="stripTabs"
-          :active-id="activeTabId"
-          new-tab-title="New file"
-          @switch="switchTab"
-          @close="requestCloseTab"
-          @add="addBlankTab"
-        />
+        <div ref="toolbarPanesEl" class="editor-toolbar-panes"></div>
       </div>
     </Teleport>
 
@@ -963,6 +1235,7 @@ onUnmounted(() => {
             :root-name="openedFolderName"
             @open-file="onTreeOpenFile"
             @open-file-pinned="onTreeOpenFilePinned"
+            @drag-file="startFileDrag"
           />
         </div>
         <div
@@ -971,35 +1244,101 @@ onUnmounted(() => {
         ></div>
       </template>
 
-      <div class="editor-tabs-area">
+      <div
+        ref="tabsAreaRef"
+        class="editor-tabs-area"
+        :class="{ 'editor-split': isSplit, 'editor-split-column': isSplit && splitDir === 'column' }"
+      >
+        <!-- Panes are placed with flex `order` (first 0, divider 1, the
+             bottom pane's strip 2, second 3)
+             rather than by moving tab bodies between containers, so a tab's
+             textarea is never remounted when it changes pane. -->
+        <div v-if="isSplit" class="editor-split-resize" @pointerdown="startSplitResize"></div>
+        <!-- Each pane's strip sits right above its view: in the titlebar
+             (teleported), except the bottom pane of a top/bottom split, whose
+             strip stays here between the divider and that pane. In a
+             left/right split the titlebar strips roughly track pane widths.
+             Dropping on a strip moves the tab/file into that pane. -->
+        <Teleport
+          v-for="(strip, i) in paneStrips"
+          :key="i"
+          :to="toolbarPanesEl"
+          :disabled="!toolbarPanesEl || isInlineStrip(i)"
+        >
+          <div
+            class="editor-toolbar-pane"
+            :class="{
+              'editor-toolbar-pane-unfocused': isSplit && i !== focusedPane,
+              'editor-toolbar-pane-drop': stripDropPane === i,
+              'editor-pane-strip': isInlineStrip(i),
+            }"
+            :style="isInlineStrip(i)
+              ? undefined
+              : { flex: `${isSplit && splitDir === 'row' ? (i === 0 ? splitPercent : 100 - splitPercent) : 1} 1 0` }"
+            @dragenter="onStripDragOver($event, i)"
+            @dragover="onStripDragOver($event, i)"
+            @dragleave="onStripDragLeave"
+            @drop.prevent="onStripDrop(i)"
+          >
+            <TabStrip
+              :tabs="strip"
+              :active-id="panes[i]?.activeId ?? null"
+              new-tab-title="New file"
+              draggable-tabs
+              @drag-start="startTabDrag"
+              @switch="switchTab"
+              @close="requestCloseTab"
+              @add="addBlankTab(i)"
+            />
+          </div>
+        </Teleport>
+        <!-- Covers the panes for the whole drag, so the textareas underneath
+             neither take the drop as text nor make dragleave flicker. -->
+        <div
+          v-if="dragSource"
+          class="editor-drop-overlay"
+          @dragenter="onDragOver"
+          @dragover="onDragOver"
+          @dragleave="dropZone = null"
+          @drop="onDrop"
+        >
+          <div v-if="dropZone" class="editor-drop-highlight" :style="dropHighlightStyle"></div>
+        </div>
         <template v-for="tab in tabs" :key="tab.id">
-          <div v-show="tab.id === activeTabId" class="editor-window-body">
-            <div v-if="tab.saveError" class="editor-error-banner">
+          <div
+            v-show="shownIn(tab.id) !== -1"
+            class="editor-window-body"
+            :style="isSplit && shownIn(tab.id) !== -1
+              ? { order: shownIn(tab.id) * 3, flex: shownIn(tab.id) === 0 ? `0 0 ${splitPercent}%` : '1' }
+              : undefined"
+            @mousedown="focusPane(tab.id)"
+          >
+            <div v-if="tab.doc.saveError" class="editor-error-banner">
               <i class="bi bi-exclamation-triangle-fill"></i>
-              <span class="editor-error-text">{{ tab.saveError }}</span>
-              <button v-if="tab.saveConflict" class="editor-error-action" @click="reloadActiveTab">Reload from device</button>
-              <button class="editor-error-dismiss" @click="tab.saveError = ''" title="Dismiss">
+              <span class="editor-error-text">{{ tab.doc.saveError }}</span>
+              <button v-if="tab.doc.saveConflict" class="editor-error-action" @click="reloadTab(tab)">Reload from device</button>
+              <button class="editor-error-dismiss" @click="tab.doc.saveError = ''" title="Dismiss">
                 <i class="bi bi-x-lg"></i>
               </button>
             </div>
 
-            <div v-if="tab.loading" class="editor-state">
+            <div v-if="tab.doc.loading" class="editor-state">
               <div class="spinner-border mb-3" role="status"><span class="visually-hidden">Loading…</span></div>
-              <p class="editor-progress-text">{{ formatSize(tab.loadedBytes) }} / {{ formatSize(tab.entry?.size ?? 0) }}</p>
+              <p class="editor-progress-text">{{ formatSize(tab.doc.loadedBytes) }} / {{ formatSize(tab.doc.entry?.size ?? 0) }}</p>
             </div>
 
-            <div v-else-if="tab.loadError" class="editor-state">
+            <div v-else-if="tab.doc.loadError" class="editor-state">
               <i class="bi bi-exclamation-octagon display-6 mb-3"></i>
-              <p class="mb-0">{{ tab.loadError }}</p>
+              <p class="mb-0">{{ tab.doc.loadError }}</p>
             </div>
 
             <div v-else class="editor-body">
               <div :ref="(el) => setGutterEl(tab.id, el as Element | null)" class="editor-gutter">
                 <div class="editor-gutter-inner">
-                  {{ tab.id === activeTabId ? gutterText : '' }}
-                  <div v-if="tab.id === activeTabId" class="editor-diff-markers">
+                  {{ shownIn(tab.id) !== -1 ? viewOf(tab).gutterLayout.value.text : '' }}
+                  <div v-if="shownIn(tab.id) !== -1" class="editor-diff-markers">
                     <div
-                      v-for="(marker, idx) in diffMarkers"
+                      v-for="(marker, idx) in viewOf(tab).diffMarkers.value"
                       :key="idx"
                       class="diff-marker"
                       :class="marker.kind === 'added' ? 'diff-marker-added' : 'diff-marker-modified'"
@@ -1010,27 +1349,28 @@ onUnmounted(() => {
               </div>
               <div class="editor-code">
               <pre
-                v-if="tab.id === activeTabId && highlightedHtml"
+                v-if="shownIn(tab.id) !== -1 && viewOf(tab).highlightedHtml.value"
                 :ref="(el) => setHighlightEl(tab.id, el as Element | null)"
                 class="editor-highlight"
                 aria-hidden="true"
-                v-html="highlightedHtml"
+                v-html="viewOf(tab).highlightedHtml.value"
               ></pre>
               <textarea
                 :ref="(el) => setTextareaEl(tab.id, el as Element | null)"
-                v-model="tab.content"
+                v-model="tab.doc.content"
+                :data-tab-id="tab.id"
                 class="editor-textarea"
-                :class="{ 'editor-textarea-highlighted': tab.id === activeTabId && highlightedHtml }"
+                :class="{ 'editor-textarea-highlighted': shownIn(tab.id) !== -1 && viewOf(tab).highlightedHtml.value }"
                 spellcheck="false"
                 autocapitalize="off"
                 autocomplete="off"
                 wrap="soft"
-                @scroll="syncGutterScroll"
-                @input="syncGutterScroll"
-                @mousedown="syncGutterScroll"
-                @click="syncGutterScroll"
-                @keyup="syncGutterScroll"
-                @focus="syncGutterScroll"
+                @scroll="syncGutterScroll(tab.id)"
+                @input="syncGutterScroll(tab.id)"
+                @mousedown="syncGutterScroll(tab.id)"
+                @click="syncGutterScroll(tab.id)"
+                @keyup="syncGutterScroll(tab.id)"
+                @focus="syncGutterScroll(tab.id); focusPane(tab.id)"
                 @keydown="handleTextareaKeydown"
               ></textarea>
               </div>
@@ -1197,18 +1537,71 @@ onUnmounted(() => {
   overflow: hidden;
 }
 
-.editor-sidebar-resize {
+.editor-sidebar-resize,
+.editor-split-resize {
   flex-shrink: 0;
   width: 5px;
   cursor: ew-resize;
   background: #3e3d32;
 }
 .editor-sidebar-resize:hover,
-.editor-sidebar-resize:active {
+.editor-sidebar-resize:active,
+.editor-split-resize:hover,
+.editor-split-resize:active {
   background: #4e4d40;
+}
+.editor-split-resize { order: 1; }
+.editor-split-column { flex-direction: column; }
+.editor-split-column .editor-split-resize { width: auto; height: 5px; cursor: ns-resize; }
+.editor-split-column .editor-window-body { min-height: 0; }
+.editor-split-column .editor-state { min-height: 0; }
+
+.editor-drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+}
+.editor-drop-highlight {
+  position: absolute;
+  pointer-events: none;
+  background: rgba(127, 180, 224, 0.18);
+  border: 2px solid rgba(127, 180, 224, 0.6);
+  transition: inset 0.1s ease, width 0.1s ease, height 0.1s ease;
+}
+
+/* One strip per pane in the titlebar; only the focused pane's active tab
+   keeps the accent underline, marking what Save/Download/Ctrl+S act on. */
+.editor-toolbar-panes {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+.editor-toolbar-pane {
+  display: flex;
+  min-width: 0;
+}
+/* Above the drop overlay (z-index 5), so dropping on it still hits the strip. */
+.editor-pane-strip {
+  position: relative;
+  z-index: 6;
+  order: 2;
+  flex-shrink: 0;
+  background: #2b2b2b;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.editor-toolbar-pane + .editor-toolbar-pane {
+  border-left: 1px solid rgba(255, 255, 255, 0.18);
+}
+.editor-toolbar-pane-unfocused :deep(.tab-active) {
+  box-shadow: none;
+}
+.editor-toolbar-pane-drop {
+  background: rgba(127, 180, 224, 0.18);
+  box-shadow: inset 0 0 0 2px rgba(127, 180, 224, 0.6);
 }
 
 .editor-tabs-area {
+  position: relative;
   flex: 1;
   min-width: 0;
   display: flex;
