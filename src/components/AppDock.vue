@@ -453,6 +453,7 @@ onUnmounted(() => {
           v-for="app in orderedApps"
           :key="app.id"
           class="dock-icon-wrapper"
+          :data-dock-app="app.id"
           :ref="(el) => setIconRef(app.id, el as Element | null)"
         >
           <button
