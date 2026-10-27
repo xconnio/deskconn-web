@@ -703,6 +703,14 @@ function windowRef(id: string) {
 
 const dockThickness = ref(0)
 
+// Where a window minimizes to / opens from. None while the dock is teleported
+// onto an overview page — the window isn't on screen then anyway.
+function dockIconRect(appId: string) {
+  if (props.dockElsewhere) return null
+  const icon = launcherBodyRef.value?.querySelector(`.dock [data-dock-app="${CSS.escape(appId)}"] .dock-icon`)
+  return icon?.getBoundingClientRect() ?? null
+}
+
 function measureDockThickness() {
   // Teleported out of launcherBody — keep the desktop's last measurement.
   if (props.dockElsewhere) return
@@ -861,6 +869,7 @@ onUnmounted(() => {
           :inset-left="insetLeft"
           :inset-right="insetRight"
           :inset-bottom="insetBottom"
+          :dock-icon-rect="() => dockIconRect(win.appId)"
           @close="closeWindowSafely(win.id)"
           @focus="focusWindow(win.id)"
           @minimize="minimizeWindow(win.id)"

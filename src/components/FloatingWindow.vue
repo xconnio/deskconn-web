@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, provide, ref, onMounted, onUnmounted, nextTick } from 'vue'
+import { computed, provide, ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { floatingWindowToolbarKey, floatingWindowActionsKey, floatingWindowMenuKey, floatingWindowMobileKey } from '@/composables/floatingWindowToolbar'
 
 const rootEl = ref<HTMLElement | null>(null)
@@ -34,6 +34,9 @@ const props = defineProps<{
   useToolbarTitlebar?: boolean
   /** Dark titlebar background, for apps with a dark embedded toolbar (e.g. the terminal's tab bar). */
   darkTitlebar?: boolean
+  /** Screen rect of this app's dock icon, which minimizing shrinks the window
+   * into and opening/restoring grows it out of. */
+  dockIconRect?: () => DOMRect | null
 }>()
 
 provide(floatingWindowMobileKey, computed(() => props.mobile))
@@ -96,6 +99,58 @@ function playFlip(before: DOMRect) {
   })
 }
 
+// Same transform trick as playFlip, for the dock: the transform that shrinks
+// the window onto its dock icon. Built from the untransformed layout box
+// (offset*), since getBoundingClientRect would include a running animation.
+function dockTransform(): string | null {
+  const el = rootEl.value
+  const icon = props.dockIconRect?.()
+  const parent = el?.offsetParent?.getBoundingClientRect()
+  if (props.mobile || !el || !icon || !parent || !el.offsetWidth || !el.offsetHeight) return null
+  const scale = Math.min(icon.width / el.offsetWidth, icon.height / el.offsetHeight)
+  const dx = icon.left + icon.width / 2 - (el.offsetWidth * scale) / 2 - (parent.left + el.offsetLeft)
+  const dy = icon.top + icon.height / 2 - (el.offsetHeight * scale) / 2 - (parent.top + el.offsetTop)
+  return `translate(${dx}px, ${dy}px) scale(${scale})`
+}
+
+// Longer, eased transition while moving to/from the dock (see .is-dock-morph).
+const dockMorph = ref(false)
+let dockMorphTimer: ReturnType<typeof setTimeout> | undefined
+function startDockMorph() {
+  dockMorph.value = true
+  clearTimeout(dockMorphTimer)
+  dockMorphTimer = setTimeout(() => { dockMorph.value = false }, DOCK_MORPH_MS)
+}
+const DOCK_MORPH_MS = 320
+
+// Runs before the DOM update, so .is-minimized lands with the target already set.
+watch(() => props.minimized, () => {
+  const el = rootEl.value
+  if (!el) return
+  el.style.transformOrigin = 'top left'
+  el.style.setProperty('--dock-transform', dockTransform() ?? 'scale(0.85)')
+  startDockMorph()
+})
+
+// A newly opened window grows out of its dock icon.
+function playOpenFromDock() {
+  const el = rootEl.value
+  const from = dockTransform()
+  if (!el || !from || props.minimized) return
+  startDockMorph()
+  el.style.transition = 'none'
+  el.style.transformOrigin = 'top left'
+  el.style.transform = from
+  el.style.opacity = '0'
+  // Just mounted: without a style flush the browser never sees this start
+  // state and there's nothing to transition from. Not a rAF — that never
+  // fires in a background tab, which would leave the window invisible.
+  void el.offsetWidth
+  el.style.transition = ''
+  el.style.transform = ''
+  el.style.opacity = ''
+}
+
 async function toggleFullscreen() {
   menuOpen.value = false
   if (document.fullscreenElement === rootEl.value) {
@@ -152,11 +207,13 @@ function onWindowBlur() {
 }
 
 onMounted(() => {
+  playOpenFromDock()
   document.addEventListener('fullscreenchange', onFullscreenChange)
   window.addEventListener('click', onWindowClickForMenu, true)
   window.addEventListener('blur', onWindowBlur)
 })
 onUnmounted(() => {
+  clearTimeout(dockMorphTimer)
   document.removeEventListener('fullscreenchange', onFullscreenChange)
   window.removeEventListener('click', onWindowClickForMenu, true)
   window.removeEventListener('blur', onWindowBlur)
@@ -549,7 +606,7 @@ function startResize(e: PointerEvent, dir: string) {
   <div
     ref="rootEl"
     class="floating-window"
-    :class="{ 'is-mobile': mobile, 'is-focused': focused, 'is-minimized': minimized, 'is-maximized': maximized, 'is-dark-titlebar': darkTitlebar, 'is-interacting': interacting, 'is-fullscreen': isFullscreen }"
+    :class="{ 'is-mobile': mobile, 'is-focused': focused, 'is-minimized': minimized, 'is-maximized': maximized, 'is-dark-titlebar': darkTitlebar, 'is-interacting': interacting, 'is-fullscreen': isFullscreen, 'is-dock-morph': dockMorph }"
     :inert="minimized"
     :style="mobile ? { zIndex, bottom: `${insetBottom ?? 0}px` } : {
       left: x + 'px',
@@ -659,9 +716,15 @@ function startResize(e: PointerEvent, dir: string) {
   border-color: #242424;
 }
 
+/* Moving to/from the dock travels further than a maximize, so it gets more time. */
+.floating-window.is-dock-morph {
+  transition: opacity 0.32s ease, transform 0.32s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* --dock-transform shrinks it onto its dock icon (see dockTransform). */
 .floating-window.is-minimized {
   opacity: 0;
-  transform: scale(0.85);
+  transform: var(--dock-transform, scale(0.85));
   pointer-events: none !important;
 }
 
