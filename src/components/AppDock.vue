@@ -6,6 +6,7 @@ import { requestMachinesPicker } from '@/router/index'
 import { openLauncher, openWindowsOverview } from '@/router/navigation'
 import { useAccountPanelStore } from '@/stores/accountPanel'
 import { useSessionCacheStore } from '@/stores/sessionCache'
+import { useMachinesStore } from '@/stores/machines'
 
 export interface DockAppDef {
   id: string
@@ -60,6 +61,44 @@ function toggleMachines() {
 function toggleWindowsOverview() {
   if (route.name === 'desktop-windows') openLauncher(props.realm)
   else openWindowsOverview(props.realm)
+}
+
+const machinesStore = useMachinesStore()
+
+// Wheel over Machines / Show Apps steps to the next/previous machine / window,
+// wrapping around. Deltas accumulate so a trackpad's many small events don't
+// fly through the list, while a mouse wheel notch (~100) is one step.
+const WHEEL_STEP = 50
+let wheelAcc = 0
+
+function wheelStep(e: WheelEvent): number {
+  wheelAcc += e.deltaY
+  if (Math.abs(wheelAcc) < WHEEL_STEP) return 0
+  const dir = Math.sign(wheelAcc)
+  wheelAcc = 0
+  return dir
+}
+
+function cycle<T>(list: T[], idx: number, dir: number): T | undefined {
+  return list[(idx + dir + list.length) % list.length]
+}
+
+function onMachinesWheel(e: WheelEvent) {
+  const dir = wheelStep(e)
+  const realms = machinesStore.desktops.map((d) => d.realm)
+  if (!dir || realms.length < 2) return
+  hideTooltip()
+  const next = cycle(realms, realms.indexOf(props.realm), dir)
+  if (next) openLauncher(next)
+}
+
+function onAppsWheel(e: WheelEvent) {
+  const dir = wheelStep(e)
+  if (!dir || props.windows.length === 0) return
+  const idx = props.windows.findIndex((w) => w.id === props.focusedId)
+  // Nothing focused yet: down lands on the first window, up on the last.
+  const next = cycle(props.windows, idx === -1 && dir < 0 ? 0 : idx, dir)
+  if (next) emit('activate', next.id)
 }
 
 const sessionCacheStore = useSessionCacheStore()
@@ -384,6 +423,7 @@ onUnmounted(() => {
             class="dock-icon dock-icon-machines"
             aria-label="Machines"
             @click="hideTooltip(); toggleMachines()"
+            @wheel.prevent="onMachinesWheel"
             @mouseenter="showTooltip('machines')"
             @mouseleave="hideTooltip"
           >
@@ -399,6 +439,7 @@ onUnmounted(() => {
             class="dock-icon dock-icon-machines"
             aria-label="Show Apps"
             @click="toggleWindowsOverview()"
+            @wheel.prevent="onAppsWheel"
             @mouseenter="showTooltip('windows-overview')"
             @mouseleave="hideTooltip"
           >
