@@ -52,6 +52,9 @@ const DEFAULT_WIDTH = 720
 const DEFAULT_HEIGHT = 480
 const CASCADE_STEP = 28
 const CASCADE_LIMIT = 8
+const EDGE_MARGIN = 24
+const WINDOW_GAP = 12
+const STACK_DISTANCE = 40
 // Mirrors FloatingWindow's own floor — a rescale should never shrink a
 // window past what the user could reach by dragging its edge.
 const MIN_WIDTH = 280
@@ -119,23 +122,61 @@ export function useWindowManager() {
     focusedId.value = top?.id ?? null
   }
 
+  // Where a width×height window covers the least of the visible windows,
+  // trying the container's corners and the spots flush against each window's
+  // sides. Zero overlap with a gap is preferred, then the smallest overlap;
+  // ties go to the topmost, then leftmost spot. Since every window opened
+  // this way counts for the next, a full screen fills its least-covered areas
+  // instead of piling new windows onto one spot.
+  function placeWindow(width: number, height: number, container: ContainerRect) {
+    const others = windows.value.filter((w) => !w.minimized)
+    const minX = container.x + EDGE_MARGIN
+    const minY = container.y + EDGE_MARGIN
+    const maxX = Math.max(minX, container.x + container.width - width)
+    const maxY = Math.max(minY, container.y + container.height - height)
+    const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(v, hi))
+    const candidates = (min: number, max: number, size: number, edges: [number, number][]) =>
+      [...new Set([min, max, ...edges.flatMap(([start, end]) => [end + WINDOW_GAP, start - size - WINDOW_GAP])]
+        .map((v) => clamp(v, min, max)))].sort((a, b) => a - b)
+    const xs = candidates(minX, maxX, width, others.map((w) => [w.x, w.x + w.width]))
+    const ys = candidates(minY, maxY, height, others.map((w) => [w.y, w.y + w.height]))
+
+    // Overlap area, padded by the gap so a window touching another isn't a 0.
+    // Opening almost exactly on top of a window hides it entirely, so that
+    // counts as covering all of it.
+    const covered = (x: number, y: number) => others.reduce((sum, w) => {
+      if (Math.abs(x - w.x) < STACK_DISTANCE && Math.abs(y - w.y) < STACK_DISTANCE) return sum + w.width * w.height
+      const dx = Math.min(x + width, w.x + w.width + WINDOW_GAP) - Math.max(x, w.x - WINDOW_GAP)
+      const dy = Math.min(y + height, w.y + w.height + WINDOW_GAP) - Math.max(y, w.y - WINDOW_GAP)
+      return dx > 0 && dy > 0 ? sum + dx * dy : sum
+    }, 0)
+
+    let best = { x: xs[0]!, y: ys[0]!, area: Infinity }
+    for (const y of ys) {
+      for (const x of xs) {
+        const area = covered(x, y)
+        if (area < best.area) best = { x, y, area }
+        if (area === 0) return best
+      }
+    }
+    return best
+  }
+
   function openWindow(options: OpenWindowOptions, container?: ContainerRect): string {
     const id = `win-${nextId++}`
-    const offset = (cascadeIndex % CASCADE_LIMIT) * CASCADE_STEP
-    cascadeIndex++
-
     const width = options.width ?? DEFAULT_WIDTH
     const height = options.height ?? DEFAULT_HEIGHT
-    const originX = container?.x ?? 0
-    const originY = container?.y ?? 0
-    let x = originX + 24 + offset
-    let y = originY + 24 + offset
 
-    // Keep the cascade from placing a new window's bottom edge behind the
-    // dock — container excludes the dock's thickness (see caller).
+    let x: number
+    let y: number
     if (container) {
-      x = Math.max(originX, Math.min(x, originX + container.width - width))
-      y = Math.max(originY, Math.min(y, originY + container.height - height))
+      ({ x, y } = placeWindow(width, height, container))
+    } else {
+      // Nothing to place against: cascade.
+      const offset = (cascadeIndex % CASCADE_LIMIT) * CASCADE_STEP
+      cascadeIndex++
+      x = EDGE_MARGIN + offset
+      y = EDGE_MARGIN + offset
     }
 
     const win: AppWindow = {
