@@ -16,12 +16,16 @@ const props = defineProps<{
   rootPath: string
   rootName: string
   keys: EncryptionKeys
+  /** State of the editor's code review toggle for its focused tab. */
+  reviewActive?: boolean
+  reviewDisabled?: boolean
 }>()
 
 const emit = defineEmits<{
   'open-file': [entry: FileEntry]
   'open-file-pinned': [entry: FileEntry]
   'drag-file': [entry: FileEntry]
+  'toggle-review': []
 }>()
 
 const fileBrowser = shallowRef(createFileBrowser(props.session, () => props.keys))
@@ -219,7 +223,16 @@ const rootStatus = computed(() => statusByPath.value.get(props.rootPath))
     >
       <i class="bi bi-folder2-open tree-icon"></i>
       <span class="tree-name">{{ rootName }}</span>
-      <button class="tree-refresh-btn" title="Refresh" @click="loadRoot">
+      <button
+        class="tree-header-btn tree-review-btn"
+        :class="{ 'tree-header-btn-on': reviewActive }"
+        :disabled="reviewDisabled"
+        :title="reviewActive ? 'Back to editing' : 'Code review'"
+        @click="emit('toggle-review')"
+      >
+        <i class="bi bi-file-diff"></i>
+      </button>
+      <button class="tree-header-btn" title="Refresh" @click="loadRoot">
         <i class="bi bi-arrow-clockwise"></i>
       </button>
     </div>
@@ -294,8 +307,7 @@ const rootStatus = computed(() => statusByPath.value.get(props.rootPath))
   color: #f59e0b !important;
 }
 
-.tree-refresh-btn {
-  margin-left: auto;
+.tree-header-btn {
   border: 0;
   background: transparent;
   color: #8a8a85;
@@ -304,9 +316,12 @@ const rootStatus = computed(() => statusByPath.value.get(props.rootPath))
   cursor: pointer;
   flex-shrink: 0;
 }
-.tree-refresh-btn:hover {
+.tree-header-btn:hover:not(:disabled),
+.tree-header-btn-on {
   color: #e2e2df;
 }
+.tree-header-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.tree-review-btn { margin-left: auto; }
 
 .tree-list {
   flex: 1;

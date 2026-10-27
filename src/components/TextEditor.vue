@@ -29,7 +29,8 @@ import { createFileBrowser } from '@/utils/fileBrowse'
 import { fetchGitOriginal } from '@/utils/git'
 import { uploadFileToPath } from '@/utils/fileUpload'
 import { notifyFileChanged } from '@/utils/fileChanges'
-import { computeLineDiff, type LineDiffMap } from '@/utils/lineDiff'
+import { splitHighlightedLines } from '@/utils/highlightLines'
+import { computeLineDiff, computeReviewLines, foldReviewLines, type LineDiffMap, type ReviewLine, type ReviewRow } from '@/utils/lineDiff'
 import 'highlight.js/styles/monokai-sublime.css'
 
 const procedureFileEdit = 'io.xconn.deskconn.file.edit'
@@ -65,6 +66,8 @@ interface TabState {
    * long as they're still clean. Double-clicking or editing promotes a tab
    * out of preview (see isReusablePreview). */
   isPreview: boolean
+  /** Shows a read-only diff against the last commit instead of the editor. */
+  reviewMode: boolean
 }
 
 const props = defineProps<{
@@ -183,7 +186,7 @@ function createDoc(entry: TextEntry | null): DocState {
 }
 
 function createTab(doc: DocState, isPreview: boolean): TabState {
-  const tab: TabState = reactive({ id: nextTabId++, doc, isPreview })
+  const tab: TabState = reactive({ id: nextTabId++, doc, isPreview, reviewMode: false })
   tabViews.set(tab.id, createTabView(tab))
   return tab
 }
@@ -1122,7 +1125,89 @@ function createTabView(tab: TabState) {
     return markers
   })
 
-  return { highlightedHtml, gutterLayout, diffMarkers }
+  // Every file is viewable in review: one with no git baseline (not in a
+  // repo, ignored, still loading) is diffed against itself, i.e. shown as-is.
+  // Untracked files diff against nothing, so every line reads as added.
+  const hasBaseline = computed(() => tab.doc.gitBaselineLoaded && tab.doc.gitIsRepo && !tab.doc.gitIgnored)
+  const reviewBase = computed(() => {
+    const d = tab.doc
+    return !hasBaseline.value ? d.content : d.gitUntracked ? '' : d.gitOriginalContent
+  })
+  const reviewLines = computed(() => computeReviewLines(reviewBase.value, tab.doc.content))
+  // Per-line syntax-highlighted HTML for both sides (null = show plain text).
+  // The current side reuses the editor's own highlight of the document.
+  const reviewHighlight = computed(() => {
+    const lib = hljs.value
+    const current = highlightedHtml.value
+    if (!lib || !current || !tab.doc.entry || reviewBase.value.length > MAX_HIGHLIGHT_SIZE) return null
+    const newLines = splitHighlightedLines(current)
+    if (reviewBase.value === tab.doc.content) return { oldLines: newLines, newLines }
+    const lang = languageFor(tab.doc.entry.name, lib)!
+    const old = lib.highlight(reviewBase.value, { language: lang, ignoreIllegals: true }).value
+    return { oldLines: splitHighlightedLines(old), newLines }
+  })
+  const reviewWholeFile = ref(true)
+  const reviewExpanded = reactive(new Set<number>())
+  const reviewRows = computed(() => {
+    const lines = reviewLines.value ?? []
+    return reviewWholeFile.value ? lines : foldReviewLines(lines, REVIEW_CONTEXT, reviewExpanded)
+  })
+  const reviewStats = computed(() => {
+    const lines = reviewLines.value ?? []
+    return {
+      added: lines.filter((l) => l.kind === 'added').length,
+      removed: lines.filter((l) => l.kind === 'removed').length,
+    }
+  })
+  // Shown in the review bar in place of the change counts/navigation.
+  const reviewNote = computed(() => {
+    if (!tab.doc.gitBaselineLoaded) return 'Loading the last committed version…'
+    if (!hasBaseline.value) return 'Not tracked by git'
+    if (reviewStats.value.added + reviewStats.value.removed === 0) return 'No changes since the last commit'
+    return ''
+  })
+
+  return { highlightedHtml, gutterLayout, diffMarkers, reviewLines, reviewHighlight, reviewRows, reviewWholeFile, reviewExpanded, reviewStats, reviewNote }
+}
+
+// ── Review mode: read-only diff of the tab's document against git HEAD ─────
+// Unchanged lines more than this far from a change fold into a clickable row.
+const REVIEW_CONTEXT = 3
+// Room left above a change jumped to, so its leading context stays in view.
+const REVIEW_JUMP_MARGIN = 48
+
+// Leaving review remounts the textarea, which restores its scroll/caret.
+function toggleReview(tab: TabState) {
+  tab.reviewMode = !tab.reviewMode
+  viewOf(tab).reviewExpanded.clear()
+  if (!tab.reviewMode) switchTab(tab.id)
+}
+
+function reviewLineHtml(tab: TabState, row: ReviewLine): string | null {
+  const hl = viewOf(tab).reviewHighlight.value
+  if (!hl) return null
+  return (row.kind === 'removed' ? hl.oldLines[row.oldNo! - 1] : hl.newLines[row.newNo! - 1]) ?? ''
+}
+
+function isHunkStart(rows: ReviewRow[], i: number): boolean {
+  const prev = rows[i - 1]
+  return rows[i]!.kind !== 'context' && (!prev || prev.kind === 'context' || prev.kind === 'fold')
+}
+
+const reviewElMap = new Map<number, HTMLElement>()
+function setReviewEl(id: number, el: Element | null) {
+  if (el) reviewElMap.set(id, el as HTMLElement)
+  else reviewElMap.delete(id)
+}
+
+function jumpToChange(id: number, dir: 1 | -1) {
+  const body = reviewElMap.get(id)
+  if (!body) return
+  const tops = [...body.querySelectorAll<HTMLElement>('.review-hunk-start')]
+    .map((el) => Math.max(0, el.offsetTop - REVIEW_JUMP_MARGIN))
+  const current = body.scrollTop
+  const target = dir === 1 ? tops.find((t) => t > current + 1) : tops.reverse().find((t) => t < current - 1)
+  if (target !== undefined) body.scrollTop = target
 }
 
 const tabViews = new Map<number, ReturnType<typeof createTabView>>()
@@ -1236,6 +1321,9 @@ onUnmounted(() => {
             @open-file="onTreeOpenFile"
             @open-file-pinned="onTreeOpenFilePinned"
             @drag-file="startFileDrag"
+            :review-active="!!activeTab?.reviewMode"
+            :review-disabled="!activeTab?.doc.entry"
+            @toggle-review="activeTab && toggleReview(activeTab)"
           />
         </div>
         <div
@@ -1330,6 +1418,58 @@ onUnmounted(() => {
             <div v-else-if="tab.doc.loadError" class="editor-state">
               <i class="bi bi-exclamation-octagon display-6 mb-3"></i>
               <p class="mb-0">{{ tab.doc.loadError }}</p>
+            </div>
+
+            <div v-else-if="tab.reviewMode" class="review-view">
+              <div class="review-bar">
+                <i class="bi bi-file-diff"></i>
+                <span class="review-title">{{ viewOf(tab).reviewNote.value || 'Changes since last commit' }}</span>
+                <template v-if="!viewOf(tab).reviewNote.value">
+                  <div class="review-toggle" role="group" aria-label="Review view">
+                    <button
+                      :class="{ 'review-toggle-on': viewOf(tab).reviewWholeFile.value }"
+                      @click="viewOf(tab).reviewWholeFile.value = true"
+                    >Whole file</button>
+                    <button
+                      :class="{ 'review-toggle-on': !viewOf(tab).reviewWholeFile.value }"
+                      @click="viewOf(tab).reviewWholeFile.value = false"
+                    >Changes only</button>
+                  </div>
+                  <span class="review-stat-added">+{{ viewOf(tab).reviewStats.value.added }}</span>
+                  <span class="review-stat-removed">−{{ viewOf(tab).reviewStats.value.removed }}</span>
+                  <button class="review-btn" title="Previous change" @click="jumpToChange(tab.id, -1)">
+                    <i class="bi bi-chevron-up"></i>
+                  </button>
+                  <button class="review-btn" title="Next change" @click="jumpToChange(tab.id, 1)">
+                    <i class="bi bi-chevron-down"></i>
+                  </button>
+                </template>
+                <button class="review-btn review-btn-text" title="Back to editing" @click="toggleReview(tab)">
+                  <i class="bi bi-pencil"></i>Edit
+                </button>
+              </div>
+              <div v-if="!viewOf(tab).reviewLines.value" class="editor-state">
+                <i class="bi bi-file-diff display-6 mb-3"></i>
+                <p class="mb-0">This file is too large to diff.</p>
+              </div>
+              <div v-else :ref="(el) => setReviewEl(tab.id, el as Element | null)" class="review-body">
+                <template v-for="(row, i) in viewOf(tab).reviewRows.value" :key="i">
+                  <button v-if="row.kind === 'fold'" class="review-fold" @click="viewOf(tab).reviewExpanded.add(row.from)">
+                    <i class="bi bi-arrows-expand"></i>{{ row.count }} unchanged lines
+                  </button>
+                  <div
+                    v-else
+                    class="review-line"
+                    :class="[`review-line-${row.kind}`, { 'review-hunk-start': isHunkStart(viewOf(tab).reviewRows.value, i) }]"
+                  >
+                    <span class="review-no">{{ row.oldNo ?? '' }}</span>
+                    <span class="review-no">{{ row.newNo ?? '' }}</span>
+                    <span class="review-sign">{{ row.kind === 'added' ? '+' : row.kind === 'removed' ? '−' : '' }}</span>
+                    <span v-if="viewOf(tab).reviewHighlight.value" class="review-text" v-html="reviewLineHtml(tab, row)"></span>
+                    <span v-else class="review-text">{{ row.text }}</span>
+                  </div>
+                </template>
+              </div>
             </div>
 
             <div v-else class="editor-body">
@@ -1767,6 +1907,125 @@ onUnmounted(() => {
   overflow: auto;
   overflow-x: hidden;
 }
+
+/* ── Review mode ── */
+.review-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #1e1e1e;
+}
+.review-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+  padding: 0.3rem 0.5rem 0.3rem 0.75rem;
+  background: #272822;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  color: #e2e2df;
+  font-size: 0.78rem;
+}
+.review-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.review-toggle {
+  display: inline-flex;
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.review-toggle button {
+  border: 0;
+  background: transparent;
+  color: #a9a9a9;
+  font-size: 0.72rem;
+  padding: 0.15rem 0.5rem;
+  cursor: pointer;
+}
+.review-toggle button + button { border-left: 1px solid rgba(255, 255, 255, 0.15); }
+.review-toggle button:hover { color: #e2e2df; }
+.review-toggle .review-toggle-on { background: rgba(255, 255, 255, 0.12); color: #fff; }
+.review-stat-added { color: #7ec699; font-weight: 600; }
+.review-stat-removed { color: #f07178; font-weight: 600; }
+.review-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 0.3rem;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+.review-btn:hover { background: rgba(255, 255, 255, 0.1); }
+.review-btn-text { padding: 0 0.55rem; border: 1px solid rgba(255, 255, 255, 0.15); }
+
+/* position: relative makes it the rows' offsetParent (see jumpToChange). */
+.review-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0.5rem 0;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  color: #f8f8f2;
+}
+.review-line { display: flex; }
+.review-line-added { background: rgba(126, 198, 153, 0.14); }
+.review-line-removed { background: rgba(240, 113, 120, 0.14); }
+.review-no {
+  flex-shrink: 0;
+  width: 4.5ch;
+  padding-right: 0.75ch;
+  text-align: right;
+  color: #75715e;
+  user-select: none;
+}
+.review-sign {
+  flex-shrink: 0;
+  width: 2ch;
+  text-align: center;
+  user-select: none;
+}
+.review-line-added .review-sign { color: #7ec699; }
+.review-line-removed .review-sign { color: #f07178; }
+.review-text {
+  flex: 1;
+  min-width: 0;
+  padding-right: 1rem;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  tab-size: 4;
+}
+/* Same as .editor-highlight: bold/italic theme styles shift glyph widths. */
+.review-text :deep(*) {
+  font-weight: inherit;
+  font-style: inherit;
+}
+.review-fold {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.15rem 0 0.15rem 10.5ch;
+  border: 0;
+  border-block: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(127, 180, 224, 0.08);
+  color: #7fb4e0;
+  font: inherit;
+  font-size: 0.78rem;
+  text-align: left;
+  cursor: pointer;
+}
+.review-fold:hover { background: rgba(127, 180, 224, 0.16); }
 
 .editor-saved-toast {
   position: fixed;

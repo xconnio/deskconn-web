@@ -53,3 +53,75 @@ export function computeLineDiff(original: string, current: string): LineDiffMap 
 
   return map
 }
+
+// ── Review mode: full old-vs-new line listing (removed lines included) ─────
+export interface ReviewLine {
+  kind: 'context' | 'added' | 'removed'
+  /** 1-based line number in the original / current text (null when absent). */
+  oldNo: number | null
+  newNo: number | null
+  text: string
+}
+/** A run of unchanged lines collapsed out of view; `from` indexes the ReviewLine list. */
+export interface ReviewFold {
+  kind: 'fold'
+  from: number
+  count: number
+}
+export type ReviewRow = ReviewLine | ReviewFold
+
+function splitLines(text: string): string[] {
+  if (text === '') return []
+  const lines = text.split('\n')
+  if (text.endsWith('\n')) lines.pop()
+  return lines
+}
+
+/** null when either side is over MAX_DIFF_SIZE. */
+export function computeReviewLines(original: string, current: string): ReviewLine[] | null {
+  if (original.length > MAX_DIFF_SIZE || current.length > MAX_DIFF_SIZE) return null
+
+  const dmp = new DiffMatchPatch()
+  const { chars1, chars2, lineArray } = dmp.diff_linesToChars_(original, current)
+  const diffs = dmp.diff_main(chars1, chars2, false)
+  dmp.diff_charsToLines_(diffs, lineArray)
+
+  const lines: ReviewLine[] = []
+  let oldNo = 1
+  let newNo = 1
+  for (const [op, text] of diffs) {
+    for (const line of splitLines(text)) {
+      if (op === DiffMatchPatch.DIFF_EQUAL) lines.push({ kind: 'context', oldNo: oldNo++, newNo: newNo++, text: line })
+      else if (op === DiffMatchPatch.DIFF_DELETE) lines.push({ kind: 'removed', oldNo: oldNo++, newNo: null, text: line })
+      else lines.push({ kind: 'added', oldNo: null, newNo: newNo++, text: line })
+    }
+  }
+  return lines
+}
+
+/** Keeps `context` unchanged lines around each change and folds the rest,
+ * except runs whose fold start is in `expanded` (or a single line, which a
+ * fold row wouldn't save any space on). */
+export function foldReviewLines(lines: ReviewLine[], context: number, expanded: ReadonlySet<number>): ReviewRow[] {
+  const keep = new Array<boolean>(lines.length).fill(false)
+  lines.forEach((line, i) => {
+    if (line.kind === 'context') return
+    for (let j = Math.max(0, i - context); j <= Math.min(lines.length - 1, i + context); j++) keep[j] = true
+  })
+
+  const rows: ReviewRow[] = []
+  let i = 0
+  while (i < lines.length) {
+    if (keep[i]) {
+      rows.push(lines[i]!)
+      i++
+      continue
+    }
+    let end = i
+    while (end < lines.length && !keep[end]) end++
+    if (end - i === 1 || expanded.has(i)) rows.push(...lines.slice(i, end))
+    else rows.push({ kind: 'fold', from: i, count: end - i })
+    i = end
+  }
+  return rows
+}
