@@ -4,7 +4,7 @@
 // transport-agnostic; only components that specifically need a direct connection (e.g. raw
 // data channel file streaming) need to consult it.
 import { toRaw } from 'vue'
-import type { WebRTCSession } from 'xconn-webrtc-js'
+import type { WebRTCSession } from '@/services/xconn'
 
 import type { WampSession } from './wamp'
 
@@ -21,6 +21,6 @@ export function registerWebRTCSession(session: WampSession, webrtc: WebRTCSessio
 export function getWebRTCSession(session: WampSession | null | undefined): WebRTCSession | null {
   if (!session) return null
   const webrtc = registry.get(toRaw(session) as object)
-  if (!webrtc || webrtc.connection.connectionState !== 'connected') return null
+  if (!webrtc || !webrtc.isConnected()) return null
   return webrtc
 }

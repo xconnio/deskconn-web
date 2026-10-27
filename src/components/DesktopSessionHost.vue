@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch, nextTick, markRaw, shallowReactive, type Component } from 'vue'
-import { type Session } from 'xconn'
+import { type Session } from '@/services/xconn'
 import type { FileEntry } from '@/types'
 import { requestMachinesPicker } from '@/router/index'
 import { openLauncher } from '@/router/navigation'

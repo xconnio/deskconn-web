@@ -25,24 +25,27 @@ See [Vite Configuration Reference](https://vite.dev/config/).
 
 ## Project Setup
 
+The app installs `@xconnio/core` from npm, including its compiled WASM.
+A Core source checkout and Rust toolchain are not needed to build the app.
+
 ```sh
-yarn
+npm ci
 ```
 
 ### Compile and Hot-Reload for Development
 
 ```sh
-yarn dev
+npm run dev
 ```
 
 ### Type-Check, Compile and Minify for Production
 
 ```sh
-yarn build
+npm run build
 ```
 
 ### Lint with [ESLint](https://eslint.org/)
 
 ```sh
-yarn lint
+npm run lint
 ```

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, inject, onMounted, onUnmounted } from 'vue'
 import type { Command } from '@/stores/commandPalette'
-import { ApplicationError } from 'xconn'
+import { ApplicationError } from '@/services/xconn'
 import { useSessionCacheStore } from '@/stores/sessionCache'
 import { useCapabilitiesStore } from '@/stores/capabilities'
 import { encryptedCall } from '@/utils/encryptedCall'

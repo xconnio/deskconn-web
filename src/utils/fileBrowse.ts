@@ -4,7 +4,7 @@
  * open/save picker) can reuse the same parsing and pre-pagination protocol
  * fallback without duplicating it.
  */
-import type { Session } from 'xconn'
+import type { Session } from '@/services/xconn'
 import { encryptPayload, decryptPayload, type EncryptionKeys } from '@/utils/encryption'
 import type { FileBrowseResult, FileEntry } from '@/types'
 

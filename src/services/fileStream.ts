@@ -12,6 +12,7 @@
 // the server writes each chunk at its own offset. Anything smaller skips
 // all of that for a plain single-channel/single-stream path instead
 // (directReadRange/webTransportReadRange).
+import type { DirectChannel } from './xconn'
 import { getWebRTCSession } from './rtcRegistry'
 import type { WampSession } from './wamp'
 import { baseName } from '@/utils/filePath'
@@ -388,7 +389,7 @@ export function directDecryptEnvelope(data: ArrayBuffer, key: Uint8Array): { kin
 // first message's content (see HandleAuxDataChannel in iptunnel.go).
 export async function openDirectChannel(
   session: WampSession, signal?: AbortSignal, label: string = CHANNEL_LABEL,
-): Promise<RTCDataChannel> {
+): Promise<DirectChannel> {
   const webrtc = getWebRTCSession(session)
   if (!webrtc) throw new NoDirectConnectionError()
   const channel = await webrtc.openDataChannel(label)
@@ -406,7 +407,7 @@ export async function openDirectChannel(
 // if the channel closes/errors mid-handshake — the caller is expected to
 // have already wired its own abort signal to close the channel, so this is
 // what turns that close into a real rejection instead of a silent stall.
-export async function directKeyExchange(channel: RTCDataChannel): Promise<EncryptionKeys> {
+export async function directKeyExchange(channel: DirectChannel): Promise<EncryptionKeys> {
   const { publicKey, privateKey } = createX25519KeyPair()
 
   const serverPublicKey = await new Promise<Uint8Array>((resolve, reject) => {
@@ -651,10 +652,6 @@ async function openDirectWriteWorker(
   signal.addEventListener('abort', () => { try { channel.close() } catch { /* ignore */ } }, { once: true })
   const keys = await directKeyExchange(channel)
 
-  channel.bufferedAmountLowThreshold = DIRECT_LOW_BUFFERED
-  let bufferedLowResolve: (() => void) | null = null
-  channel.onbufferedamountlow = () => { const wake = bufferedLowResolve; bufferedLowResolve = null; wake?.() }
-
   let ackResolve: ((r: FSResponse) => void) | null = null
   let ackReject: ((e: Error) => void) | null = null
   let closedErr: Error | null = null
@@ -670,7 +667,6 @@ async function openDirectWriteWorker(
   const onClosed = () => {
     closedErr = new Error('connection closed')
     ackReject?.(closedErr)
-    const wake = bufferedLowResolve; bufferedLowResolve = null; wake?.()
   }
   channel.onclose = onClosed
   channel.onerror = onClosed
@@ -699,7 +695,7 @@ async function openDirectWriteWorker(
 
       while (channel.bufferedAmount + envelope.length > DIRECT_MAX_BUFFERED) {
         if (closedErr) throw closedErr
-        await new Promise<void>((resolve) => { bufferedLowResolve = resolve })
+        await channel.waitBufferedBelow(DIRECT_LOW_BUFFERED)
       }
       channel.send(envelope)
       sent += bytes.length

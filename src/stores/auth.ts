@@ -1,6 +1,6 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
-import { CryptoSignAuthenticator } from 'xconn'
+import { CryptoSignAuthenticator } from '@/services/xconn'
 import {
   wampService,
   normalizeStandaloneURL,

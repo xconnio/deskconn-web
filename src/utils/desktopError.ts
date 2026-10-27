@@ -1,4 +1,4 @@
-import { ApplicationError } from 'xconn'
+import { ApplicationError } from '@/services/xconn'
 
 export const DESKTOP_OFFLINE_MESSAGE = 'Desktop is offline.'
 export const BACKEND_UPDATE_MESSAGE = 'This feature needs a newer version of the desktop backend. Please update it.'

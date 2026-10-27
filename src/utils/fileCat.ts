@@ -4,7 +4,7 @@
  * The path goes as an encrypted JSON string and each chunk comes back encrypted,
  * both with the realm's key-exchange keys.
  */
-import { type Session } from 'xconn'
+import { type Session } from '@/services/xconn'
 import { useSessionEncryptionStore } from '@/stores/sessionEncryption'
 import { encryptPayload, decryptPayload } from '@/utils/encryption'
 import { isKeysRejectedError } from '@/utils/desktopError'
@@ -57,7 +57,7 @@ async function streamFileCatOnce(
     .then(() => { streamDone = true; notify() })
     .catch((err: unknown) => { streamError = err; streamDone = true; notify() })
 
-  const onAbort = () => notify()
+  const onAbort = () => { void progressResult.cancel(); notify() }
   signal?.addEventListener('abort', onAbort, { once: true })
 
   try {
@@ -77,6 +77,7 @@ async function streamFileCatOnce(
     }
   } finally {
     signal?.removeEventListener('abort', onAbort)
+    await progressResult.cancel()
   }
   if (streamError) throw streamError instanceof Error ? streamError : new Error('Stream failed')
 }

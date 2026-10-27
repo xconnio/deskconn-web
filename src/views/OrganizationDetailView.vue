@@ -3,7 +3,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import { authService } from '../services/authService'
 import type { Organization, OrganizationInvite } from '../types'
-import { ApplicationError } from 'xconn'
+import { ApplicationError } from '@/services/xconn'
 
 // Only ever rendered as a drill-down inside AccountPanel's popup
 // Organizations list — takes `orgId` as a prop and emits `back` instead of

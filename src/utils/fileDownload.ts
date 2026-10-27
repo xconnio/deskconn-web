@@ -6,7 +6,7 @@
  * and go straight to a download).
  */
 import { type Ref } from 'vue'
-import { type Session } from 'xconn'
+import { type Session } from '@/services/xconn'
 import { requestRange } from '@/services/fileStream'
 import { downloadUrl } from '@/utils/download'
 import { isFirefoxBrowser } from '@/utils/fileTypes'

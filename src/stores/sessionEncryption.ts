@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import type { Session } from 'xconn'
+import type { Session } from '@/services/xconn'
 import { createX25519KeyPair, deriveSessionKeys, type EncryptionKeys } from '@/utils/encryption'
 
 const procedureKeyExchange = 'io.xconn.deskconn.key.exchange'

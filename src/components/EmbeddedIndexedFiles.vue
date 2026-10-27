@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, shallowRef, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
-import { type Session } from 'xconn'
+import { type Session } from '@/services/xconn'
 
 import { useSessionCacheStore } from '@/stores/sessionCache'
 import { useSessionEncryptionStore } from '@/stores/sessionEncryption'
