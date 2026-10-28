@@ -393,6 +393,29 @@ function updateIsMobile() {
   isMobile.value = window.innerWidth < 768
 }
 
+// Mobile: a horizontal swipe on the home screen steps to the neighbouring
+// machine, like deskconn-mobile-app's machine pager — not while an app is open.
+const SWIPE_PX = 60
+let swipeStart: { x: number; y: number } | null = null
+
+function onSwipeStart(e: TouchEvent) {
+  const t = e.touches[0]
+  const onHome = !windows.value.some((w) => !w.minimized)
+  swipeStart = isMobile.value && onHome && props.active && e.touches.length === 1 && t ? { x: t.clientX, y: t.clientY } : null
+}
+
+function onSwipeEnd(e: TouchEvent) {
+  const t = e.changedTouches[0]
+  if (!swipeStart || !t) return
+  const dx = t.clientX - swipeStart.x
+  const dy = t.clientY - swipeStart.y
+  swipeStart = null
+  if (Math.abs(dx) < SWIPE_PX || Math.abs(dx) < Math.abs(dy) * 1.5) return
+  const realms = machinesStore.desktops.map((d) => d.realm)
+  const next = realms[realms.indexOf(props.realm) + (dx < 0 ? 1 : -1)]
+  if (next) openLauncher(next)
+}
+
 // Vertical docks are awkward on narrow screens — always use the bottom dock there.
 // Position is per-machine (see stores/settings.ts), set via the in-dock Settings app.
 const dockPosition = computed(() => (isMobile.value ? 'bottom' : settingsStore.getDockPosition(props.realm)))
@@ -848,6 +871,8 @@ onUnmounted(() => {
       class="launcher-body"
       :class="{ 'has-wallpaper': !!wallpaperUrl, 'is-connecting': isConnecting, 'is-disconnected': isDisconnected }"
       :style="launcherBodyStyle"
+      @touchstart.passive="onSwipeStart"
+      @touchend.passive="onSwipeEnd"
     >
       <div class="windows-layer">
         <FloatingWindow
