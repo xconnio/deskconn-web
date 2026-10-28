@@ -1012,6 +1012,21 @@ const resizeObserver = new ResizeObserver((entries) => {
   }
 })
 
+// Programmatic edits go through execCommand so they land on the browser's own
+// undo stack (Ctrl+Z / Ctrl+Shift+Z); assigning the value directly wipes it.
+// It needs the textarea focused, so focus is borrowed and handed back.
+function editText(textarea: HTMLTextAreaElement, from: number, to: number, text: string) {
+  const back = document.activeElement as HTMLElement | null
+  textarea.focus({ preventScroll: true })
+  textarea.setSelectionRange(from, to)
+  if (!document.execCommand(text ? 'insertText' : 'delete', false, text)) {
+    // Not undoable, but still applied.
+    textarea.setRangeText(text, from, to, 'end')
+    textarea.dispatchEvent(new Event('input'))
+  }
+  if (back && back !== textarea) back.focus({ preventScroll: true })
+}
+
 function handleTextareaKeydown(e: KeyboardEvent) {
   if (e.key !== 'Tab') return
   const tab = activeTab.value
@@ -1024,8 +1039,7 @@ function handleTextareaKeydown(e: KeyboardEvent) {
   const end = textarea.selectionEnd
 
   if (!e.shiftKey && start === end) {
-    tab.doc.content = value.slice(0, start) + '\t' + value.slice(end)
-    nextTick(() => { textarea.selectionStart = textarea.selectionEnd = start + 1 })
+    editText(textarea, start, end, '\t')
     return
   }
 
@@ -1036,11 +1050,8 @@ function handleTextareaKeydown(e: KeyboardEvent) {
 
   if (!e.shiftKey) {
     const indented = selectedLines.map((line) => '\t' + line).join('\n')
-    tab.doc.content = value.slice(0, lineStart) + indented + value.slice(lineEnd)
-    nextTick(() => {
-      textarea.selectionStart = start + 1
-      textarea.selectionEnd = end + indented.length - (lineEnd - lineStart)
-    })
+    editText(textarea, lineStart, lineEnd, indented)
+    textarea.setSelectionRange(start + 1, end + indented.length - (lineEnd - lineStart))
     return
   }
 
@@ -1055,11 +1066,10 @@ function handleTextareaKeydown(e: KeyboardEvent) {
     return line.slice(removed)
   }).join('\n')
 
-  tab.doc.content = value.slice(0, lineStart) + outdented + value.slice(lineEnd)
-  nextTick(() => {
-    textarea.selectionStart = Math.max(lineStart, start - firstLineRemoved)
-    textarea.selectionEnd = Math.max(textarea.selectionStart, end - totalRemoved)
-  })
+  if (!totalRemoved) return
+  editText(textarea, lineStart, lineEnd, outdented)
+  const newStart = Math.max(lineStart, start - firstLineRemoved)
+  textarea.setSelectionRange(newStart, Math.max(newStart, end - totalRemoved))
 }
 
 // ── Git change markers (added = green, modified = blue) for each shown tab —
@@ -1310,10 +1320,10 @@ function stepMatch(dir: 1 | -1) {
 }
 
 function replaceCurrent() {
-  const tab = activeTab.value
+  const textarea = activeTextareaEl.value
   const m = findMatches.value[findCurrent.value]
-  if (!tab || !m) return
-  tab.doc.content = tab.doc.content.slice(0, m.start) + find.replacement + tab.doc.content.slice(m.end)
+  if (!textarea || !m) return
+  editText(textarea, m.start, m.end, find.replacement)
   // Skip past the inserted text, in case it contains the query itself.
   const after = m.start + find.replacement.length
   find.index = Math.max(0, findMatches.value.findIndex((x) => x.start >= after))
@@ -1322,8 +1332,10 @@ function replaceCurrent() {
 
 function replaceAll() {
   const tab = activeTab.value
-  if (!tab || !findMatches.value.length) return
-  tab.doc.content = tab.doc.content.replace(findRegex.value, () => find.replacement)
+  const textarea = activeTextareaEl.value
+  if (!tab || !textarea || !findMatches.value.length) return
+  // One edit for the whole file, so a single Ctrl+Z undoes it.
+  editText(textarea, 0, tab.doc.content.length, tab.doc.content.replace(findRegex.value, () => find.replacement))
 }
 
 // ── Title / keyboard ─────────────────────────────────────────────────────
