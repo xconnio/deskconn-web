@@ -870,6 +870,7 @@ function syncGutterScroll(id: number) {
   if (gutter) gutter.scrollTop = top
   const highlight = highlightElMap.get(id)
   if (highlight) highlight.scrollTop = top
+  if (findMarksEl && id === activeTabId.value) findMarksEl.scrollTop = top
 }
 
 // ── Per-tab scroll position and caret ──────────────────────────────────────
@@ -1011,6 +1012,21 @@ const resizeObserver = new ResizeObserver((entries) => {
   }
 })
 
+// Programmatic edits go through execCommand so they land on the browser's own
+// undo stack (Ctrl+Z / Ctrl+Shift+Z); assigning the value directly wipes it.
+// It needs the textarea focused, so focus is borrowed and handed back.
+function editText(textarea: HTMLTextAreaElement, from: number, to: number, text: string) {
+  const back = document.activeElement as HTMLElement | null
+  textarea.focus({ preventScroll: true })
+  textarea.setSelectionRange(from, to)
+  if (!document.execCommand(text ? 'insertText' : 'delete', false, text)) {
+    // Not undoable, but still applied.
+    textarea.setRangeText(text, from, to, 'end')
+    textarea.dispatchEvent(new Event('input'))
+  }
+  if (back && back !== textarea) back.focus({ preventScroll: true })
+}
+
 function handleTextareaKeydown(e: KeyboardEvent) {
   if (e.key !== 'Tab') return
   const tab = activeTab.value
@@ -1023,8 +1039,7 @@ function handleTextareaKeydown(e: KeyboardEvent) {
   const end = textarea.selectionEnd
 
   if (!e.shiftKey && start === end) {
-    tab.doc.content = value.slice(0, start) + '\t' + value.slice(end)
-    nextTick(() => { textarea.selectionStart = textarea.selectionEnd = start + 1 })
+    editText(textarea, start, end, '\t')
     return
   }
 
@@ -1035,11 +1050,8 @@ function handleTextareaKeydown(e: KeyboardEvent) {
 
   if (!e.shiftKey) {
     const indented = selectedLines.map((line) => '\t' + line).join('\n')
-    tab.doc.content = value.slice(0, lineStart) + indented + value.slice(lineEnd)
-    nextTick(() => {
-      textarea.selectionStart = start + 1
-      textarea.selectionEnd = end + indented.length - (lineEnd - lineStart)
-    })
+    editText(textarea, lineStart, lineEnd, indented)
+    textarea.setSelectionRange(start + 1, end + indented.length - (lineEnd - lineStart))
     return
   }
 
@@ -1054,11 +1066,10 @@ function handleTextareaKeydown(e: KeyboardEvent) {
     return line.slice(removed)
   }).join('\n')
 
-  tab.doc.content = value.slice(0, lineStart) + outdented + value.slice(lineEnd)
-  nextTick(() => {
-    textarea.selectionStart = Math.max(lineStart, start - firstLineRemoved)
-    textarea.selectionEnd = Math.max(textarea.selectionStart, end - totalRemoved)
-  })
+  if (!totalRemoved) return
+  editText(textarea, lineStart, lineEnd, outdented)
+  const newStart = Math.max(lineStart, start - firstLineRemoved)
+  textarea.setSelectionRange(newStart, Math.max(newStart, end - totalRemoved))
 }
 
 // ── Git change markers (added = green, modified = blue) for each shown tab —
@@ -1215,6 +1226,118 @@ function viewOf(tab: TabState) {
   return tabViews.get(tab.id)!
 }
 
+// ── Find / replace (Ctrl+F, Ctrl+H) ──────────────────────────────────────
+// One bar, acting on the focused pane's tab. Matches are painted by a
+// transparent-text overlay over the textarea (same box and wrapping as the
+// highlight layer), since an unfocused textarea doesn't show its selection.
+const FIND_MAX_MATCHES = 10000
+const find = reactive({ open: false, replace: false, query: '', replacement: '', matchCase: false, index: 0 })
+const findInputEl = ref<HTMLInputElement | null>(null)
+let findMarksEl: HTMLElement | null = null
+
+const findRegex = computed(() =>
+  new RegExp(find.query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), find.matchCase ? 'g' : 'gi'))
+
+const findMatches = computed(() => {
+  const tab = activeTab.value
+  if (!find.open || !find.query || !tab || tab.reviewMode) return []
+  const matches: { start: number; end: number }[] = []
+  for (const m of tab.doc.content.matchAll(findRegex.value)) {
+    matches.push({ start: m.index, end: m.index + m[0].length })
+    // ponytail: highlighting/stepping stops at the cap; Replace all isn't capped.
+    if (matches.length === FIND_MAX_MATCHES) break
+  }
+  return matches
+})
+const findCurrent = computed(() => Math.min(find.index, findMatches.value.length - 1))
+
+const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;')
+const findMarksHtml = computed(() => {
+  const text = activeTab.value?.doc.content ?? ''
+  let html = ''
+  let pos = 0
+  findMatches.value.forEach(({ start, end }, i) => {
+    html += escapeHtml(text.slice(pos, start))
+      + `<mark${i === findCurrent.value ? ' class="find-current"' : ''}>${escapeHtml(text.slice(start, end))}</mark>`
+    pos = end
+  })
+  return pos ? html + escapeHtml(text.slice(pos)) + '\n' : ''
+})
+
+function setFindMarksEl(id: number, el: Element | null) {
+  if (findMarksEl === el) return
+  findMarksEl = el as HTMLElement | null
+  if (el) syncGutterScroll(id)
+}
+
+// Selects the current match and scrolls it into view — after the DOM update,
+// so a just-replaced value is in the textarea (and the content watch above,
+// which restores unfocused views, has already run).
+function revealMatch() {
+  void nextTick(() => {
+    const id = activeTabId.value
+    const textarea = activeTextareaEl.value
+    const m = findMatches.value[findCurrent.value]
+    if (id === null || !textarea || !m) return
+    textarea.setSelectionRange(m.start, m.end)
+    const mark = findMarksEl?.querySelector<HTMLElement>('.find-current')
+    if (mark && (mark.offsetTop < textarea.scrollTop
+      || mark.offsetTop + mark.offsetHeight > textarea.scrollTop + textarea.clientHeight)) {
+      textarea.scrollTop = mark.offsetTop - textarea.clientHeight / 3
+    }
+    syncGutterScroll(id)
+  })
+}
+
+// Typing in the bar jumps to the first match at or after the caret.
+watch(() => [find.query, find.matchCase], () => {
+  const caret = activeTabId.value !== null ? viewStates.get(activeTabId.value)?.start ?? 0 : 0
+  find.index = Math.max(0, findMatches.value.findIndex((m) => m.start >= caret))
+  revealMatch()
+})
+
+function openFind(replace: boolean): boolean {
+  const textarea = activeTextareaEl.value
+  if (!textarea || activeTab.value?.reviewMode) return false
+  const selected = textarea.value.slice(textarea.selectionStart, textarea.selectionEnd)
+  if (selected && !selected.includes('\n')) find.query = selected
+  find.open = true
+  find.replace = replace
+  void nextTick(() => findInputEl.value?.select())
+  return true
+}
+
+function closeFind() {
+  find.open = false
+  if (activeTabId.value !== null) switchTab(activeTabId.value)
+}
+
+function stepMatch(dir: 1 | -1) {
+  const n = findMatches.value.length
+  if (!n) return
+  find.index = (findCurrent.value + dir + n) % n
+  revealMatch()
+}
+
+function replaceCurrent() {
+  const textarea = activeTextareaEl.value
+  const m = findMatches.value[findCurrent.value]
+  if (!textarea || !m) return
+  editText(textarea, m.start, m.end, find.replacement)
+  // Skip past the inserted text, in case it contains the query itself.
+  const after = m.start + find.replacement.length
+  find.index = Math.max(0, findMatches.value.findIndex((x) => x.start >= after))
+  revealMatch()
+}
+
+function replaceAll() {
+  const tab = activeTab.value
+  const textarea = activeTextareaEl.value
+  if (!tab || !textarea || !findMatches.value.length) return
+  // One edit for the whole file, so a single Ctrl+Z undoes it.
+  editText(textarea, 0, tab.doc.content.length, tab.doc.content.replace(findRegex.value, () => find.replacement))
+}
+
 // ── Title / keyboard ─────────────────────────────────────────────────────
 watch([activeTab, activeDirty], () => {
   const tab = activeTab.value
@@ -1224,9 +1347,17 @@ watch([activeTab, activeDirty], () => {
 
 function handleKeydown(e: KeyboardEvent) {
   if (!props.focused) return
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+  const mod = e.ctrlKey || e.metaKey
+  if (mod && e.key.toLowerCase() === 's') {
     e.preventDefault()
     if (activeTab.value) void saveTab(activeTab.value)
+  } else if (mod && e.code === 'KeyF') {
+    // Cmd+Alt+F on macOS, where Cmd+H hides the app.
+    if (openFind(e.altKey)) e.preventDefault()
+  } else if (e.ctrlKey && e.code === 'KeyH') {
+    if (openFind(true)) e.preventDefault()
+  } else if (e.key === 'Escape' && find.open) {
+    closeFind()
   }
 }
 
@@ -1513,6 +1644,52 @@ onUnmounted(() => {
                 @focus="syncGutterScroll(tab.id); focusPane(tab.id)"
                 @keydown="handleTextareaKeydown"
               ></textarea>
+              <template v-if="find.open && tab.id === activeTabId">
+                <pre
+                  v-if="findMarksHtml"
+                  :ref="(el) => setFindMarksEl(tab.id, el as Element | null)"
+                  class="editor-find-marks"
+                  aria-hidden="true"
+                  v-html="findMarksHtml"
+                ></pre>
+                <div class="find-bar">
+                  <div class="find-row">
+                    <button class="find-btn" :title="find.replace ? 'Hide replace' : 'Replace'" @click="find.replace = !find.replace">
+                      <i class="bi" :class="find.replace ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
+                    </button>
+                    <input
+                      :ref="(el) => { findInputEl = el as HTMLInputElement | null }"
+                      v-model="find.query"
+                      class="find-input"
+                      placeholder="Find"
+                      spellcheck="false"
+                      @keydown.enter.prevent="stepMatch($event.shiftKey ? -1 : 1)"
+                    />
+                    <button class="find-btn" :class="{ 'find-btn-on': find.matchCase }" title="Match case" @click="find.matchCase = !find.matchCase">Aa</button>
+                    <span class="find-count">{{ findMatches.length ? `${findCurrent + 1} of ${findMatches.length}` : find.query ? 'No results' : '' }}</span>
+                    <button class="find-btn" title="Previous match (Shift+Enter)" :disabled="!findMatches.length" @click="stepMatch(-1)">
+                      <i class="bi bi-arrow-up"></i>
+                    </button>
+                    <button class="find-btn" title="Next match (Enter)" :disabled="!findMatches.length" @click="stepMatch(1)">
+                      <i class="bi bi-arrow-down"></i>
+                    </button>
+                    <button class="find-btn" title="Close (Esc)" @click="closeFind">
+                      <i class="bi bi-x-lg"></i>
+                    </button>
+                  </div>
+                  <div v-if="find.replace" class="find-row find-row-replace">
+                    <input
+                      v-model="find.replacement"
+                      class="find-input"
+                      placeholder="Replace"
+                      spellcheck="false"
+                      @keydown.enter.prevent="replaceCurrent"
+                    />
+                    <button class="find-btn find-btn-text" title="Replace (Enter)" :disabled="!findMatches.length" @click="replaceCurrent">Replace</button>
+                    <button class="find-btn find-btn-text" title="Replace all" :disabled="!findMatches.length" @click="replaceAll">All</button>
+                  </div>
+                </div>
+              </template>
               </div>
             </div>
           </div>
@@ -1861,6 +2038,7 @@ onUnmounted(() => {
    box, font, padding and wrapping, and the same reserved scrollbar gutter
    (scrollbar-gutter on both) so the text width never differs. */
 .editor-highlight,
+.editor-find-marks,
 .editor-textarea {
   margin: 0;
   padding: 1rem 1.25rem;
@@ -1907,6 +2085,85 @@ onUnmounted(() => {
   overflow: auto;
   overflow-x: hidden;
 }
+
+/* ── Find / replace ── */
+.editor-find-marks {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  color: transparent;
+}
+.editor-find-marks :deep(mark) {
+  padding: 0;
+  color: transparent;
+  background: rgba(230, 219, 116, 0.25);
+  border-radius: 2px;
+}
+.editor-find-marks :deep(mark.find-current) {
+  background: rgba(253, 151, 31, 0.5);
+  outline: 1px solid #fd971f;
+}
+.find-bar {
+  position: absolute;
+  top: 0.4rem;
+  right: 1.5rem;
+  z-index: 2;
+  max-width: calc(100% - 2rem);
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.35rem 0.4rem;
+  background: #272822;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  font-size: 0.78rem;
+  color: #e2e2df;
+}
+.find-row {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+/* Lines the replace input up under the find input (past the toggle button). */
+.find-row-replace { padding-left: 1.75rem; }
+.find-input {
+  width: 14rem;
+  min-width: 3rem;
+  flex-shrink: 1;
+  padding: 0.2rem 0.4rem;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  outline: none;
+  background: #1e1e1e;
+  color: #f8f8f2;
+  font: inherit;
+}
+.find-input:focus { border-color: #7fb4e0; }
+.find-count {
+  min-width: 4.5rem;
+  color: #a6a69c;
+  white-space: nowrap;
+}
+.find-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5rem;
+  height: 1.5rem;
+  padding: 0 0.25rem;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.find-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.08); }
+.find-btn:disabled { opacity: 0.4; cursor: default; }
+.find-btn-on { border-color: #7fb4e0; color: #7fb4e0; }
+.find-btn-text { padding: 0 0.5rem; }
 
 /* ── Review mode ── */
 .review-view {
