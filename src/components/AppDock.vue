@@ -543,6 +543,11 @@ onUnmounted(() => {
             <i class="bi bi-person-circle"></i>
           </button>
         </div>
+
+        <div class="dock-machine" :title="`${desktopName} (${connectionMode})`">
+          <span class="dock-machine-mode">{{ connectionMode }}</span>
+          <span class="dock-machine-name">{{ desktopName }}</span>
+        </div>
       </template>
 
       <!-- Mobile: apps live on the desktop as icons instead (.desktop-icon-grid
@@ -578,9 +583,8 @@ onUnmounted(() => {
     </Teleport>
   </div>
 
-  <!-- Floats over the desktop rather than living in the dock, so the name has
-       room to be readable whichever edge the dock sits on. -->
-  <div class="machine-badge" :class="mobile ? 'machine-badge-mobile' : `machine-badge-${position}`">
+  <!-- Mobile only: desktop shows this inside the dock (.dock-machine). -->
+  <div v-if="mobile" class="machine-badge machine-badge-mobile">
     <span class="machine-badge-dot" :class="`machine-badge-dot-${connectionMode}`"></span>
     <span class="machine-badge-name">{{ desktopName }}</span>
     <span class="machine-badge-mode">({{ connectionMode }})</span>
@@ -836,25 +840,51 @@ onUnmounted(() => {
   pointer-events: none;
 }
 
-/* Sits just above the bottom bar; with a side dock it centres in the
-   remaining desktop area instead (4.5rem = the docks' min size). */
-.machine-badge-bottom {
-  bottom: calc(4.5rem + 0.5rem);
-}
-
-.machine-badge-left {
-  left: calc(50% + 2.25rem);
-}
-
-.machine-badge-right {
-  left: calc(50% - 2.25rem);
-}
-
 /* Above the bottom nav, and under any open app window (those stack from
    z-index 2, the icon grid is 1). */
 .machine-badge-mobile {
   bottom: calc(3.2rem + env(safe-area-inset-bottom, 0px) + 0.6rem);
   z-index: 1;
+}
+
+/* Sized like a dock icon (46px tile, 12px radius) so it lines up with them. */
+.dock-machine {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  gap: 0.1rem;
+  height: 46px;
+  min-width: 46px;
+  max-width: 7rem;
+  padding: 0 0.4rem;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  font-size: 0.8rem;
+  line-height: 1.15;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.dock-left .dock-machine,
+.dock-right .dock-machine {
+  width: 46px;
+  padding: 0 0.2rem;
+  font-size: 0.7rem;
+}
+
+.dock-machine-mode {
+  max-width: 100%;
+  opacity: 0.8;
+}
+
+.dock-machine-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
 }
 
 .machine-badge-dot {
