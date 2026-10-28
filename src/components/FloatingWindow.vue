@@ -621,7 +621,8 @@ function startResize(e: PointerEvent, dir: string) {
   >
     <div class="fwin-titlebar" :class="{ 'fwin-titlebar--dark': darkTitlebar }" @pointerdown="startDrag" @contextmenu.prevent>
       <!-- Mobile is one app at a time: no minimize/close, just a way back. -->
-      <button v-if="mobile" class="fwin-back" title="Back" aria-label="Back" @click="$emit('close')">
+      <!-- Back keeps the app running, like a phone; it's closed from the Apps switcher. -->
+      <button v-if="mobile" class="fwin-back" title="Back" aria-label="Back" @click="requestMinimize">
         <i class="bi bi-chevron-left"></i>
       </button>
       <template v-if="!useToolbarTitlebar || mobile">

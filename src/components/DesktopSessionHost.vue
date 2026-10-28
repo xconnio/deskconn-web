@@ -188,18 +188,21 @@ function observeWindowPreviewTarget(windowId: string, el: HTMLElement | null) {
 function windowPreviewStyle(win: AppWindow): Record<string, string> {
   const target = windowPreviewSizes.value[win.id]
   if (!target) return { display: 'contents' }
+  // On mobile every window fills the desktop above the nav, whatever its stored size.
+  const width = isMobile.value ? lastKnownSize.value.width : win.width
+  const height = isMobile.value ? lastKnownSize.value.height - dockThickness.value : win.height
   // Uniform scale (object-fit:contain, not stretch) — a square-ish app
   // window shouldn't get squashed to fill a wide/short card; it's centered
   // in the leftover space instead, same as the machine preview above.
-  const scale = Math.min(target.width / win.width, target.height / win.height)
-  const offsetX = (target.width - win.width * scale) / 2
-  const offsetY = (target.height - win.height * scale) / 2
+  const scale = Math.min(target.width / width, target.height / height)
+  const offsetX = (target.width - width * scale) / 2
+  const offsetY = (target.height - height * scale) / 2
   return {
     position: 'absolute',
     top: '0',
     left: '0',
-    width: `${win.width}px`,
-    height: `${win.height}px`,
+    width: `${width}px`,
+    height: `${height}px`,
     transform: `translate(${offsetX}px, ${offsetY}px) scale(${scale})`,
     transformOrigin: 'top left',
     pointerEvents: 'none',
@@ -388,6 +391,29 @@ watch(
 const isMobile = ref(window.innerWidth < 768)
 function updateIsMobile() {
   isMobile.value = window.innerWidth < 768
+}
+
+// Mobile: a horizontal swipe on the home screen steps to the neighbouring
+// machine, like deskconn-mobile-app's machine pager — not while an app is open.
+const SWIPE_PX = 60
+let swipeStart: { x: number; y: number } | null = null
+
+function onSwipeStart(e: TouchEvent) {
+  const t = e.touches[0]
+  const onHome = !windows.value.some((w) => !w.minimized)
+  swipeStart = isMobile.value && onHome && props.active && e.touches.length === 1 && t ? { x: t.clientX, y: t.clientY } : null
+}
+
+function onSwipeEnd(e: TouchEvent) {
+  const t = e.changedTouches[0]
+  if (!swipeStart || !t) return
+  const dx = t.clientX - swipeStart.x
+  const dy = t.clientY - swipeStart.y
+  swipeStart = null
+  if (Math.abs(dx) < SWIPE_PX || Math.abs(dx) < Math.abs(dy) * 1.5) return
+  const realms = machinesStore.desktops.map((d) => d.realm)
+  const next = realms[realms.indexOf(props.realm) + (dx < 0 ? 1 : -1)]
+  if (next) openLauncher(next)
 }
 
 // Vertical docks are awkward on narrow screens — always use the bottom dock there.
@@ -845,6 +871,8 @@ onUnmounted(() => {
       class="launcher-body"
       :class="{ 'has-wallpaper': !!wallpaperUrl, 'is-connecting': isConnecting, 'is-disconnected': isDisconnected }"
       :style="launcherBodyStyle"
+      @touchstart.passive="onSwipeStart"
+      @touchend.passive="onSwipeEnd"
     >
       <div class="windows-layer">
         <FloatingWindow

@@ -220,6 +220,9 @@ onUnmounted(() => {
   display: none;
 }
 
+/* The padding below can be taller than the dock (e.g. the mobile nav), so the
+   strip it leaves matches OverviewGrid's background. */
+.main-content:has(> #overview-dock .dock) { background: #0f172a; }
 .main-content:has(> #overview-dock .dock-bottom) { padding-bottom: 4.5rem; }
 .main-content:has(> #overview-dock .dock-left) { padding-left: 4.5rem; }
 .main-content:has(> #overview-dock .dock-right) { padding-right: 4.5rem; }

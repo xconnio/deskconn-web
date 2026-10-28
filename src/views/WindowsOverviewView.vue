@@ -49,6 +49,12 @@ function onSelect(entry: WindowEntry) {
   goBack()
 }
 
+// Mobile: back to the home screen with every app still running.
+function goHome() {
+  for (const w of manager.value.windows.value) if (!w.minimized) manager.value.minimizeWindow(w.id)
+  goBack()
+}
+
 // An app that needs to confirm closing (busy terminal, unsaved edits) would
 // show its dialog inside the window, which is only a tiny preview here — so
 // it asks through this page's own dialog instead.
@@ -80,11 +86,18 @@ function setPreviewTarget(windowId: string, el: Element | null) {
     :active-id="manager.focusedId.value"
     show-back
     closable
+    carousel
     empty-message="No apps open"
     @select="onSelect"
     @close="onClose"
     @back="goBack"
   >
+    <template #actions>
+      <button class="home-btn" title="Home" aria-label="Home" @click.stop="goHome">
+        <i class="bi bi-house"></i>
+      </button>
+    </template>
+
     <template #preview="{ entry }">
       <div class="preview-slot" :ref="(el) => setPreviewTarget(entry.id, el as Element | null)"></div>
     </template>
@@ -120,6 +133,28 @@ function setPreviewTarget(windowId: string, el: Element | null) {
   position: fixed;
   inset: 0;
   z-index: 2000;
+}
+
+.home-btn {
+  display: none;
+}
+
+/* Same look as OverviewGrid's close button, beside it. */
+@media (max-width: 767px) {
+  .home-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    margin-left: auto;
+    margin-right: 0.5rem;
+    border: none;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
+    font-size: 1.05rem;
+  }
 }
 
 .preview-slot {
