@@ -188,18 +188,21 @@ function observeWindowPreviewTarget(windowId: string, el: HTMLElement | null) {
 function windowPreviewStyle(win: AppWindow): Record<string, string> {
   const target = windowPreviewSizes.value[win.id]
   if (!target) return { display: 'contents' }
+  // On mobile every window fills the desktop above the nav, whatever its stored size.
+  const width = isMobile.value ? lastKnownSize.value.width : win.width
+  const height = isMobile.value ? lastKnownSize.value.height - dockThickness.value : win.height
   // Uniform scale (object-fit:contain, not stretch) — a square-ish app
   // window shouldn't get squashed to fill a wide/short card; it's centered
   // in the leftover space instead, same as the machine preview above.
-  const scale = Math.min(target.width / win.width, target.height / win.height)
-  const offsetX = (target.width - win.width * scale) / 2
-  const offsetY = (target.height - win.height * scale) / 2
+  const scale = Math.min(target.width / width, target.height / height)
+  const offsetX = (target.width - width * scale) / 2
+  const offsetY = (target.height - height * scale) / 2
   return {
     position: 'absolute',
     top: '0',
     left: '0',
-    width: `${win.width}px`,
-    height: `${win.height}px`,
+    width: `${width}px`,
+    height: `${height}px`,
     transform: `translate(${offsetX}px, ${offsetY}px) scale(${scale})`,
     transformOrigin: 'top left',
     pointerEvents: 'none',

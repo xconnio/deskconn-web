@@ -546,12 +546,22 @@ onUnmounted(() => {
       </template>
 
       <!-- Mobile: apps live on the desktop as icons instead (.desktop-icon-grid
-           below) and open one at a time, so there's no window switcher here —
-           this bar is just the machine/profile switcher. -->
+           below) and open one at a time; Apps opens the recents-style switcher. -->
       <template v-else>
         <button class="mobile-nav-item" aria-label="Machines" @click="toggleMachines()">
           <i class="bi bi-window-stack"></i>
           <span class="mobile-nav-label">Machines</span>
+        </button>
+
+        <button
+          class="mobile-nav-item"
+          :class="{ 'mobile-nav-item-active': route.name === 'desktop-windows' }"
+          aria-label="Apps"
+          @click="toggleWindowsOverview()"
+        >
+          <i class="bi bi-grid-3x3-gap-fill"></i>
+          <span v-if="windows.length" class="mobile-nav-count">{{ windows.length }}</span>
+          <span class="mobile-nav-label">Apps</span>
         </button>
 
         <button class="mobile-nav-item" aria-label="Profile" @click="accountPanelStore.open('account')">
@@ -1109,6 +1119,25 @@ onUnmounted(() => {
 .mobile-nav-label {
   font-size: 0.65rem;
   font-weight: 600;
+}
+
+.mobile-nav-item-active {
+  color: #fff;
+}
+
+.mobile-nav-count {
+  position: absolute;
+  top: 0;
+  left: calc(50% + 0.45rem);
+  min-width: 1rem;
+  height: 1rem;
+  padding: 0 0.25rem;
+  border-radius: 999px;
+  background: #f97316;
+  color: #fff;
+  font-size: 0.6rem;
+  font-weight: 700;
+  line-height: 1rem;
 }
 
 /* Mobile home-screen — pinned apps as icons on the desktop instead of dock

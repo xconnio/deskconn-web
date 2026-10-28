@@ -1,5 +1,5 @@
 <script setup lang="ts" generic="T extends { id: string }">
-import { ref, watch, onMounted, onUnmounted } from 'vue'
+import { ref, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useEntryNavigation } from '@/composables/useEntryNavigation'
 
 // Shared by MachinesOverview and the Open Windows page — same sticky-header
@@ -20,6 +20,9 @@ const props = defineProps<{
   /** Shows the header's back button, emitting `back`. */
   showBack?: boolean
   emptyMessage?: string
+  /** On phones, a horizontal recents-style carousel (swipe a card up to close)
+   * instead of the 2-up grid — like deskconn-mobile-app's RecentsView. */
+  carousel?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -67,7 +70,59 @@ function onBackgroundClick(e: MouseEvent) {
   if (props.showBack && !(e.target as Element).closest('.overview-card')) emit('back')
 }
 
-onMounted(() => window.addEventListener('keydown', onKeydown, true))
+// Same breakpoint as DesktopSessionHost's isMobile.
+const isPhone = () => window.matchMedia('(max-width: 767px)').matches
+
+// Swipe a card up to close it. The cards are touch-action: pan-x, so a
+// horizontal drag stays the browser's native scroll (and cancels this).
+const SWIPE_CLOSE_PX = 120
+const swipe = ref<{ id: string; startX: number; startY: number; dy: number; vertical: boolean } | null>(null)
+let suppressClick = false
+
+function onCardPointerDown(entry: T, e: PointerEvent) {
+  if (!props.carousel || !props.closable || !isPhone() || e.button !== 0) return
+  swipe.value = { id: entry.id, startX: e.clientX, startY: e.clientY, dy: 0, vertical: false }
+}
+
+function onCardPointerMove(e: PointerEvent) {
+  const s = swipe.value
+  if (!s) return
+  const dx = e.clientX - s.startX
+  const dy = e.clientY - s.startY
+  if (!s.vertical) {
+    if (Math.abs(dx) > 8) { swipe.value = null; return }
+    if (Math.abs(dy) < 8) return
+    s.vertical = true
+    ;(e.currentTarget as Element).setPointerCapture(e.pointerId)
+  }
+  s.dy = Math.min(dy, 0)
+}
+
+function onCardPointerUp(entry: T) {
+  const s = swipe.value
+  swipe.value = null
+  if (!s?.vertical) return
+  suppressClick = true
+  if (s.dy < -SWIPE_CLOSE_PX) emit('close', entry)
+}
+
+function onCardClick(entry: T) {
+  if (suppressClick) { suppressClick = false; return }
+  emit('select', entry)
+}
+
+function cardStyle(entry: T) {
+  const s = swipe.value
+  if (s?.id !== entry.id || !s.vertical) return undefined
+  return { transform: `translateY(${s.dy}px)`, opacity: String(1 - Math.min(-s.dy / 400, 0.7)), transition: 'none' }
+}
+
+onMounted(async () => {
+  window.addEventListener('keydown', onKeydown, true)
+  // Start on the active app, like a phone's recents.
+  await nextTick()
+  if (props.carousel) gridRef.value?.querySelector('.overview-card-active')?.scrollIntoView({ inline: 'center', block: 'nearest' })
+})
 onUnmounted(() => window.removeEventListener('keydown', onKeydown, true))
 </script>
 
@@ -75,12 +130,13 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown, true))
   <div class="overview" @contextmenu.prevent @click="onBackgroundClick">
     <div class="overview-header">
       <h2 class="overview-title">{{ title }}</h2>
+      <slot name="actions" />
       <button v-if="showBack" class="overview-close" title="Close" @click.stop="emit('back')">
         <i class="bi bi-x-lg"></i>
       </button>
     </div>
 
-    <div ref="gridRef" class="overview-grid">
+    <div ref="gridRef" class="overview-grid" :class="{ 'overview-carousel': carousel }">
       <div
         v-for="entry in entries"
         :key="entry.id"
@@ -90,7 +146,12 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown, true))
           'kbd-focused': selected?.id === entry.id,
         }"
         tabindex="-1"
-        @click="emit('select', entry)"
+        :style="cardStyle(entry)"
+        @click="onCardClick(entry)"
+        @pointerdown="onCardPointerDown(entry, $event)"
+        @pointermove="onCardPointerMove"
+        @pointerup="onCardPointerUp(entry)"
+        @pointercancel="swipe = null"
       >
         <span
           v-if="closable"
@@ -326,6 +387,47 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown, true))
     width: 100%;
     /* Shorter header at this breakpoint (see .overview-header above). */
     scroll-margin-top: 76px;
+  }
+}
+
+/* Recents-style carousel: one big card per app, snapping to the centre, with
+   the neighbours peeking in from the sides. */
+@media (max-width: 767px) {
+  .overview:has(> .overview-carousel) {
+    overflow: hidden;
+  }
+
+  .overview-grid.overview-carousel {
+    display: flex;
+    gap: 0.75rem;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: none;
+    padding: 1rem 14vw 1.5rem;
+  }
+
+  .overview-carousel .overview-card {
+    flex: 0 0 72vw;
+    width: 72vw;
+    padding: 0;
+    scroll-snap-align: center;
+    touch-action: pan-x;
+    transition:
+      transform 0.2s ease,
+      opacity 0.2s ease;
+  }
+
+  /* Phone-shaped: the window's live content is scaled to fit (see
+     DesktopSessionHost's windowPreviewStyle). 15rem = header, label, nav. */
+  .overview-carousel .overview-preview {
+    aspect-ratio: auto;
+    height: calc(100dvh - 15rem);
+    border-radius: 18px;
+  }
+
+  .overview-carousel .overview-empty {
+    flex: 1;
+    text-align: center;
   }
 }
 </style>
