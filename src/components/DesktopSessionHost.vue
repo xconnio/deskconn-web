@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed, watch, nextTick, markRaw, type Component } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch, nextTick, markRaw, shallowReactive, type Component } from 'vue'
 import { type Session } from 'xconn'
 import type { FileEntry } from '@/types'
 import { requestMachinesPicker } from '@/router/index'
@@ -15,6 +15,7 @@ import { useMachinesOverviewStore } from '@/stores/machinesOverview'
 import { useWindowsOverviewStore } from '@/stores/windowsOverview'
 import { useCapabilitiesStore } from '@/stores/capabilities'
 import { useSessionEncryptionStore } from '@/stores/sessionEncryption'
+import { useCommandPaletteStore, type PaletteCommandSource } from '@/stores/commandPalette'
 import { decryptPayload } from '@/utils/encryption'
 import EmbeddedDesktopFiles from '@/components/EmbeddedDesktopFiles.vue'
 import TerminalPanel from '@/components/TerminalPanel.vue'
@@ -721,9 +722,14 @@ function onOpenFiles(path: string) {
 // registerWindowInstance lives on the window manager (not here) so the Open
 // Windows page can also close a window safely, without bypassing whatever
 // confirmation its live component (e.g. Terminal) wants to run first.
+// Also kept here, reactively, so the palette picks up the focused app's commands.
+const paletteSources = shallowReactive(new Map<string, PaletteCommandSource>())
+
 function windowRef(id: string) {
   return (instance: unknown) => {
     registerWindowInstance(id, instance as CloseableWindowInstance | null)
+    if (instance) paletteSources.set(id, instance as PaletteCommandSource)
+    else paletteSources.delete(id)
   }
 }
 
@@ -789,6 +795,70 @@ function handleLaunch(appId: string) {
   launchApp(app)
   if (props.dockElsewhere) openLauncher(props.realm)
 }
+
+function showWindow(id: string, minimized: boolean) {
+  if (minimized) restoreWindow(id)
+  else focusWindow(id)
+  if (props.dockElsewhere) openLauncher(props.realm)
+}
+
+// Steps through windows in open order, wrapping; nothing focused starts at either end.
+function cycleWindow(dir: number) {
+  const list = windows.value
+  if (!list.length) return
+  const idx = list.findIndex((w) => w.id === focusedId.value)
+  const next = list[idx === -1 ? (dir > 0 ? 0 : list.length - 1) : (idx + dir + list.length) % list.length]!
+  showWindow(next.id, next.minimized)
+}
+
+// This machine's entries in the command palette (CommandPalette.vue).
+const commandPaletteStore = useCommandPaletteStore()
+watch(
+  [dockApps, windows, focusedId, isDisconnected, () => props.dockElsewhere, () => paletteSources.get(focusedId.value ?? '')?.commands],
+  () => {
+    const launch = isDisconnected.value ? [] : dockApps.value
+      .filter((a) => a.launchable !== false)
+      .map((a) => ({
+        id: `app:${a.id}`,
+        group: 'Open app',
+        label: a.label,
+        icon: a.icon,
+        iconBg: a.iconBg,
+        keywords: 'open launch new',
+        run: () => handleLaunch(a.id),
+      }))
+    const switchTo = windows.value.map((w) => ({
+      id: `win:${w.id}`,
+      group: 'Switch to window',
+      label: w.title,
+      icon: w.icon,
+      iconBg: w.iconBg,
+      keywords: 'window focus',
+      run: () => showWindow(w.id, w.minimized),
+    }))
+    const cycle = windows.value.length > 1
+      ? [
+          { id: 'win:next', group: 'Window', label: 'Next window', icon: 'bi-arrow-right-square', keywords: 'switch app', shortcut: { code: 'BracketRight', alt: true }, run: () => cycleWindow(1) },
+          { id: 'win:prev', group: 'Window', label: 'Previous window', icon: 'bi-arrow-left-square', keywords: 'switch app', shortcut: { code: 'BracketLeft', alt: true }, run: () => cycleWindow(-1) },
+        ]
+      : []
+    const focused = windows.value.find((w) => w.id === focusedId.value)
+    // The focused app's own commands lead, grouped under its title.
+    const appCommands = focused && !focused.minimized && !props.dockElsewhere
+      ? (paletteSources.get(focused.id)?.commands ?? []).map((c) => ({ ...c, id: `${focused.id}:${c.id}`, group: c.group || focused.title }))
+      : []
+    const actions = focused
+      ? [
+          { id: 'win:minimize', group: 'Window', label: `Minimize ${focused.title}`, icon: 'bi-dash-lg', run: () => minimizeWindow(focused.id) },
+          { id: 'win:maximize', group: 'Window', label: `${focused.maximized ? 'Restore' : 'Maximize'} ${focused.title}`, icon: 'bi-arrows-fullscreen', run: () => onToggleMaximize(focused.id) },
+          { id: 'win:close', group: 'Window', label: `Close ${focused.title}`, icon: 'bi-x-lg', run: () => closeWindowSafely(focused.id) },
+        ]
+      : []
+    commandPaletteStore.setRealmCommands(props.realm, [...appCommands, ...launch, ...switchTo, ...cycle, ...actions])
+  },
+  { immediate: true, deep: true },
+)
+onUnmounted(() => commandPaletteStore.setRealmCommands(props.realm, null))
 
 // From an overview page's dock: always show the window, never toggle-minimize it.
 function onDockActivate(id: string) {

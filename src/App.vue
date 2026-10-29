@@ -10,6 +10,7 @@ import { useDesktopSessionsStore } from './stores/desktopSessions'
 import { useSessionCacheStore } from './stores/sessionCache'
 import { useAccountPanelStore } from './stores/accountPanel'
 import AccountPanel from './components/AccountPanel.vue'
+import CommandPalette from './components/CommandPalette.vue'
 
 const DesktopSessionHost = defineAsyncComponent(() => import('./components/DesktopSessionHost.vue'))
 
@@ -147,6 +148,7 @@ onUnmounted(() => {
     </button>
 
     <AccountPanel v-if="authStore.isAuthenticated" />
+    <CommandPalette v-if="authStore.isAuthenticated" />
 
   </div>
 </template>

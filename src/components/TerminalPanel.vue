@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, shallowRef, onMounted, onUnmounted, computed, inject, nextTick, watch } from 'vue'
+import { isMac, type Command } from '@/stores/commandPalette'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
@@ -339,7 +340,20 @@ async function requestClose(confirm?: CloseConfirm): Promise<boolean> {
   })
 }
 
-defineExpose({ requestClose })
+const commands = computed<Command[]>(() => [
+  { id: 'new-tab', label: 'New tab', icon: 'bi-plus-lg', run: () => void addTab() },
+  ...(activeTab.value ? [
+    { id: 'close-tab', label: 'Close tab', icon: 'bi-x-lg', run: () => void requestCloseTab(activeTab.value!.id) },
+    { id: 'copy', label: 'Copy selection', icon: 'bi-clipboard', keys: isMac ? ['⌘', 'C'] : ['Ctrl', 'Shift', 'C'], run: () => void copySelection() },
+    { id: 'paste', label: 'Paste', icon: 'bi-clipboard-check', keys: isMac ? ['⌘', 'V'] : ['Ctrl', 'Shift', 'V'], run: () => void pasteClipboard() },
+  ] : []),
+  ...tabs.value.slice(0, 9).map((t, i) => ({
+    id: `tab:${t.id}`, label: `Go to tab: ${t.label}`, icon: 'bi-terminal', keys: [isMac ? '⌥' : 'Alt', String(i + 1)],
+    run: () => void switchTab(t.id),
+  })),
+].map((c) => ({ group: '', ...c })))
+
+defineExpose({ requestClose, commands })
 
 function confirmPendingClose() {
   const p = pendingClose.value
