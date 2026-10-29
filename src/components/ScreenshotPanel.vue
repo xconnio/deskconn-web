@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, inject, onMounted, onUnmounted } from 'vue'
+import type { Command } from '@/stores/commandPalette'
 import { ApplicationError } from 'xconn'
 import { useSessionCacheStore } from '@/stores/sessionCache'
 import { useCapabilitiesStore } from '@/stores/capabilities'
@@ -209,6 +210,18 @@ function onTouchMove(e: TouchEvent) {
 function onTouchEnd() {
   dragging.value = false
 }
+
+const commands = computed<Command[]>(() => [
+  { id: 'capture', label: 'Take new screenshot', icon: 'bi-camera', keywords: 'capture refresh', run: () => void capture() },
+  ...(imageUrl.value ? [
+    { id: 'zoom-in', label: 'Zoom in', icon: 'bi-zoom-in', keys: ['+'], run: () => (zoom.value = clampZoom(zoom.value * 1.2)) },
+    { id: 'zoom-out', label: 'Zoom out', icon: 'bi-zoom-out', keys: ['-'], run: () => (zoom.value = clampZoom(zoom.value / 1.2)) },
+    { id: 'fit', label: 'Fit to screen', icon: 'bi-aspect-ratio', keys: ['0'], run: fitToScreen },
+    { id: 'download', label: 'Download screenshot', icon: 'bi-download', run: download },
+  ] : []),
+].map((c) => ({ group: '', ...c })))
+
+defineExpose({ commands })
 
 // Only act on these while this window is focused — several screenshot
 // windows can be open at once, each with its own zoom state.

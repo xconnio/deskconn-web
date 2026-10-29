@@ -10,6 +10,7 @@
  * to HEAD (lineDiff.ts).
  */
 import { ref, reactive, computed, inject, watch, nextTick, onMounted, onUnmounted, shallowRef } from 'vue'
+import { isMac, MOD, type Command } from '@/stores/commandPalette'
 import { type Session } from 'xconn'
 import { floatingWindowActionsKey, floatingWindowToolbarKey } from '@/composables/floatingWindowToolbar'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
@@ -590,7 +591,27 @@ async function requestClose(confirm?: CloseConfirm): Promise<boolean> {
     pendingClose.value = { kind: 'window', resolve }
   })
 }
-defineExpose({ requestClose })
+const commands = computed<Command[]>(() => {
+  const tab = activeTab.value
+  const editable = !!tab && !tab.reviewMode
+  return [
+    { id: 'new', label: 'New file', icon: 'bi-file-earmark-plus', run: menuNew },
+    { id: 'open-file', label: 'Open file…', icon: 'bi-file-earmark', run: menuOpenFile },
+    { id: 'open-folder', label: 'Open folder…', icon: 'bi-folder2-open', keywords: 'project', run: menuOpenFolder },
+    ...(tab ? [
+      { id: 'save', label: 'Save', icon: 'bi-save', keys: [MOD, 'S'], run: menuSave },
+      { id: 'save-as', label: 'Save as…', icon: 'bi-save2', run: menuSaveAs },
+      { id: 'download', label: 'Download file', icon: 'bi-download', run: () => downloadTab(tab) },
+    ] : []),
+    ...(editable ? [
+      { id: 'find', label: 'Find', icon: 'bi-search', keys: [MOD, 'F'], keywords: 'search', run: () => openFind(false) },
+      { id: 'replace', label: 'Find and replace', icon: 'bi-arrow-left-right', keys: isMac ? ['⌘', '⌥', 'F'] : ['Ctrl', 'H'], run: () => openFind(true) },
+    ] : []),
+    ...(openedFolderPath.value ? [{ id: 'close-project', label: 'Close folder', icon: 'bi-folder-x', keywords: 'project', run: menuCloseProject }] : []),
+  ].map((c) => ({ group: '', ...c }))
+})
+
+defineExpose({ requestClose, commands })
 
 function confirmPendingClose() {
   const p = pendingClose.value

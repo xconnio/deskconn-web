@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, inject, nextTick, onMounted, onUnmounted, reactive, ref, shallowRef, watch } from 'vue'
+import type { Command } from '@/stores/commandPalette'
 import { ApplicationError, type Session } from 'xconn'
 
 import { useSessionCacheStore } from '@/stores/sessionCache'
@@ -1166,6 +1167,25 @@ const { handleNavKey } = useEntryNavigation({
   isGrid: () => isGridView.value,
   onOpen: handleEntryPrimaryAction,
 })
+
+const commands = computed<Command[]>(() => {
+  if (activePlace.value !== 'files' || isConnecting.value) return []
+  const dir = !!currentBrowse.value?.is_dir
+  return [
+    ...(currentBrowse.value ? [{ id: 'search', label: 'Search files', icon: 'bi-search', keys: ['Ctrl', 'F'], run: enterFileSearch }] : []),
+    { id: 'hidden', label: showHiddenFiles.value ? 'Hide hidden files' : 'Show hidden files', icon: showHiddenFiles.value ? 'bi-eye-slash' : 'bi-eye', keys: ['Ctrl', 'H'], run: () => (showHiddenFiles.value = !showHiddenFiles.value) },
+    { id: 'refresh', label: 'Refresh', icon: 'bi-arrow-clockwise', keywords: 'reload', keys: ['Ctrl', 'R'], run: refreshCurrentPath },
+    ...(canGoUp.value ? [{ id: 'up', label: 'Go to parent folder', icon: 'bi-arrow-up', keywords: 'up', keys: ['⌫'], run: goUp }] : []),
+    ...(canGoBack.value ? [{ id: 'back', label: 'Go back', icon: 'bi-arrow-left', run: goBack }] : []),
+    ...(canGoForward.value ? [{ id: 'forward', label: 'Go forward', icon: 'bi-arrow-right', run: goForward }] : []),
+    ...(dir ? [{ id: 'upload', label: 'Upload files…', icon: 'bi-upload', run: triggerUpload }] : []),
+    ...(dir && clipboard.value && supportedFileProcedures.value.copy
+      ? [{ id: 'paste', label: `Paste "${clipboard.value.name}" here`, icon: 'bi-clipboard-check', run: pasteClipboard }]
+      : []),
+  ].map((c) => ({ group: '', ...c }))
+})
+
+defineExpose({ commands })
 
 function handleGlobalKeydown(e: KeyboardEvent) {
   if (!props.focused || activePlace.value !== 'files') return
