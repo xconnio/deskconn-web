@@ -4,7 +4,7 @@ import { type Session } from 'xconn'
 import type { FileEntry } from '@/types'
 import { requestMachinesPicker } from '@/router/index'
 import { openLauncher } from '@/router/navigation'
-import type { AppWindow, CloseableWindowInstance } from '@/composables/useWindowManager'
+import type { AppWindow, CloseableWindowInstance, SavedWindow } from '@/composables/useWindowManager'
 
 import { useMachinesStore } from '@/stores/machines'
 import { useSettingsStore } from '@/stores/settings'
@@ -64,6 +64,8 @@ const {
   updateTitle,
   syncMaximizedBounds,
   fitWindowsToContainer,
+  savedWindows,
+  restoreWindows,
 } = desktopSessionsStore.getOrCreate(props.realm)
 
 const sessionTitle = computed(() => {
@@ -329,6 +331,7 @@ const isDesktop = ref(true)
 // below), so returning to a still-active view doesn't lose anything.
 function markDisconnected() {
   isDisconnected.value = true
+  windowsRestored = false
 }
 
 // Acquires a session and confirms deskconnd is actually reachable (a WAMP
@@ -351,6 +354,8 @@ async function connectSession(): Promise<boolean> {
     }
 
     await capabilitiesStore.fetch(props.realm)
+    await settingsStore.fetchMachineSettings(props.realm)
+    reopenSavedWindows(session)
 
     session.onDisconnect(async () => {
       markDisconnected()
@@ -360,6 +365,42 @@ async function connectSession(): Promise<boolean> {
     return false
   }
 }
+
+// The open windows are saved on the machine (see settingsStore's machine settings), so
+// they come back on the next visit from any browser. Not before they've been reopened,
+// or while disconnected, which would save over them with none.
+const SESSION_APPS = new Set(['preview', 'image-viewer', 'video-player', 'text-editor'])
+let windowsRestored = false
+let saveWindowsTimer: ReturnType<typeof setTimeout> | undefined
+
+function reopenSavedWindows(session: Session) {
+  const raw = settingsStore.getMachineSetting(props.realm, 'windows')
+  if (raw && windows.value.length === 0) {
+    try {
+      const saved = (JSON.parse(raw) as SavedWindow[]).map((w) =>
+        SESSION_APPS.has(w.appId) ? { ...w, props: { ...w.props, session: markRaw(session) } } : w)
+      restoreWindows(saved, maximizedContainerSize())
+    } catch {
+      // ignore malformed setting
+    }
+  }
+  windowsRestored = true
+}
+
+watch(windows, () => {
+  if (!windowsRestored) return
+  clearTimeout(saveWindowsTimer)
+  saveWindowsTimer = setTimeout(() => {
+    // A live session can't be saved, nor is a preview's whole folder listing worth it.
+    const saved = savedWindows().map((w) => {
+      const props = { ...w.props }
+      delete props.session
+      delete props.entries
+      return { ...w, props }
+    })
+    settingsStore.setMachineSetting(props.realm, 'windows', JSON.stringify(saved))
+  }, 1000)
+}, { deep: true })
 
 // No upfront invalidate here, acquire() reuses a still-healthy cached
 // session; a dead one has already evicted itself by this point.
@@ -582,6 +623,7 @@ function windowProps(win: { id: string; appId: string; props: Record<string, unk
         realm: props.realm,
         desktopName: desktopName.value,
         initialPath: win.props.initialPath as string | undefined,
+        initialShowHidden: win.props.initialShowHidden as boolean | undefined,
         focused,
       }
     case 'terminal':
@@ -590,6 +632,8 @@ function windowProps(win: { id: string; appId: string; props: Record<string, unk
         desktopName: desktopName.value,
         embedded: true,
         exec: win.props.exec as ShellExec | undefined,
+        initialTabs: win.props.initialTabs as number | undefined,
+        initialActiveTab: win.props.initialActiveTab as number | undefined,
         focused,
       }
     case 'agents':
@@ -597,11 +641,14 @@ function windowProps(win: { id: string; appId: string; props: Record<string, unk
         realm: props.realm,
         focused,
         agents: availableAgents.value,
+        initialAgent: win.props.initialAgent as string | undefined,
+        initialProject: win.props.initialProject as string | undefined,
       }
     case 'resource-monitor':
       return {
         realm: props.realm,
         desktopName: desktopName.value,
+        initialSection: win.props.initialSection as string | undefined,
         focused,
       }
     case 'screenshot':
@@ -612,6 +659,7 @@ function windowProps(win: { id: string; appId: string; props: Record<string, unk
     case 'settings':
       return {
         realm: props.realm,
+        initialSection: win.props.initialSection as string | undefined,
         focused,
       }
     case 'preview':
@@ -630,6 +678,8 @@ function windowProps(win: { id: string; appId: string; props: Record<string, unk
         realm: props.realm,
         entry: win.props.entry as PreviewEntry | undefined,
         initialFolder: win.props.initialFolder as string | undefined,
+        openFiles: win.props.openFiles as PreviewEntry[] | undefined,
+        activeFile: win.props.activeFile as string | undefined,
         focused,
       }
     default:
@@ -989,6 +1039,7 @@ onUnmounted(() => {
                 @open-text-editor="onOpenTextEditor"
                 @resume-agent="onResumeAgent"
                 @update-title="updateTitle(win.id, $event)"
+                @update-props="Object.assign(win.props, $event)"
               />
             </div>
           </Teleport>

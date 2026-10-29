@@ -76,10 +76,18 @@ const props = defineProps<{
   realm: string
   entry?: TextEntry
   initialFolder?: string
+  /** The tabs to reopen, over entry, and which of them was active. */
+  openFiles?: TextEntry[]
+  activeFile?: string
   focused?: boolean
 }>()
 
-const emit = defineEmits<{ 'update-title': [title: string]; close: [] }>()
+const emit = defineEmits<{
+  'update-title': [title: string]
+  close: []
+  // Saved with the window, so it reopens with the same folder and files.
+  'update-props': [props: { initialFolder?: string; openFiles: TextEntry[]; activeFile?: string }]
+}>()
 
 const actionsHostRef = inject(floatingWindowActionsKey)
 const actionsTarget = computed(() => actionsHostRef?.value ?? null)
@@ -1390,15 +1398,27 @@ onMounted(async () => {
   await bootstrapSession()
   if (initError.value) return
 
-  if (props.entry) {
-    const tab = createTab(docFor(props.entry), false)
-    addTab(tab)
-    panes.value[0]!.activeId = tab.id
+  const files = props.openFiles ?? (props.entry ? [props.entry] : [])
+  if (files.length) {
+    for (const entry of files) addTab(createTab(docFor(entry), false))
+    const active = tabs.value.find((t) => t.doc.entry?.path === props.activeFile) ?? tabs.value[0]!
+    panes.value[0]!.activeId = active.id
   } else {
     addBlankTab()
   }
   if (props.initialFolder) openedFolderPath.value = props.initialFolder
 })
+
+// Split panes reopen as one; unsaved edits aren't kept, only which files were open.
+watch(
+  () => ({
+    initialFolder: openedFolderPath.value || undefined,
+    // A file open in both panes is one tab here.
+    openFiles: [...new Map(tabs.value.flatMap((t) => (t.doc.entry ? [[t.doc.entry.path, { ...t.doc.entry }] as const] : []))).values()],
+    activeFile: activeTab.value?.doc.entry?.path,
+  }),
+  (state) => emit('update-props', state),
+)
 
 onUnmounted(() => {
   document.removeEventListener('keydown', handleKeydown)

@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useSettingsStore } from '@/stores/settings'
 import type { DockPosition } from '@/stores/settings'
 import { useCapabilitiesStore, type Capability } from '@/stores/capabilities'
 import { useMachinesStore } from '@/stores/machines'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 
-const props = defineProps<{ realm: string; focused: boolean }>()
+const props = defineProps<{ realm: string; focused: boolean; initialSection?: string }>()
+// Saved with the window, so it reopens on the same section.
+const emit = defineEmits<{ 'update-props': [props: { initialSection: string }] }>()
 
 const settingsStore = useSettingsStore()
 const capabilitiesStore = useCapabilitiesStore()
@@ -77,7 +79,9 @@ const sections = computed(() => [
   ...(capabilities.value.length ? [{ id: 'apps' as const, label: 'Apps', icon: 'bi-grid' }] : []),
 ])
 
-const selectedSection = ref<Section>('appearance')
+// Not checked here: activeSection falls back to the first section for an unknown one.
+const selectedSection = ref<Section>((props.initialSection as Section | undefined) ?? 'appearance')
+watch(selectedSection, (id) => emit('update-props', { initialSection: id }))
 const activeSection = computed(() =>
   sections.value.find((s) => s.id === selectedSection.value) ?? sections.value[0]!,
 )

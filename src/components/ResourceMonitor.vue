@@ -9,8 +9,12 @@ import { encryptedCall } from '../utils/encryptedCall'
 const props = defineProps<{
   realm: string
   desktopName?: string
+  initialSection?: string
   focused?: boolean
 }>()
+
+// Saved with the window, so it reopens on the same section.
+const emit = defineEmits<{ 'update-props': [props: { initialSection: string }] }>()
 
 const sessionCacheStore = useSessionCacheStore()
 const settingsStore = useSettingsStore()
@@ -83,7 +87,10 @@ const SECTIONS: { id: Section; label: string; icon: string; graph: boolean }[] =
   { id: 'network', label: 'Network', icon: 'bi-diagram-3', graph: true },
 ]
 
-const activeSection = ref<Section>('apps')
+const activeSection = ref<Section>(
+  SECTIONS.some((s) => s.id === props.initialSection) ? (props.initialSection as Section) : 'apps',
+)
+watch(activeSection, (id) => emit('update-props', { initialSection: id }))
 
 const info = ref<DeviceInfo | null>(null)
 const loading = ref(true)

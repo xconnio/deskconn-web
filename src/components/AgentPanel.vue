@@ -21,9 +21,15 @@ const props = defineProps<{
   realm: string
   focused?: boolean
   agents: Agent[]
+  initialAgent?: string
+  initialProject?: string
 }>()
-// Without a sessionId, starts a new session in dir.
-const emit = defineEmits<{ 'resume-agent': [agent: string, dir: string, sessionId?: string] }>()
+const emit = defineEmits<{
+  // Without a sessionId, starts a new session in dir.
+  'resume-agent': [agent: string, dir: string, sessionId?: string]
+  // Saved with the window, so it reopens on the same agent and project.
+  'update-props': [props: { initialAgent?: string; initialProject?: string }]
+}>()
 
 const sessionCacheStore = useSessionCacheStore()
 const sessionEncryptionStore = useSessionEncryptionStore()
@@ -42,12 +48,13 @@ interface Session {
   messages?: { role: 'user' | 'assistant'; text: string }[]
 }
 
-const agentId = ref(props.agents[0]?.id)
+const agentId = ref(props.initialAgent ?? props.agents[0]?.id)
 // Falls back to another agent if this one's uninstalled while open.
 const current = computed(() => props.agents.find((a) => a.id === agentId.value) ?? props.agents[0])
 
 const projects = ref<Project[]>([])
-const selected = ref<Project | null>(null)
+// Only its path matters before projects load: loadProjects picks the listed one by it.
+const selected = ref<Project | null>(props.initialProject ? { path: props.initialProject, sessions: 0, updated_at: '' } : null)
 const sessions = ref<Session[]>([])
 const loading = ref(true)
 const loadingSessions = ref(false)
@@ -76,14 +83,14 @@ async function loadProjects() {
   error.value = null
   try {
     const list = await call<Project[]>(`io.xconn.deskconn.${agent.id}.project.list`)
-    if (agent !== current.value) return
+    if (agent.id !== current.value?.id) return
     projects.value = list
     const project = list.find((p) => p.path === selected.value?.path) ?? list[0]
     if (project) await selectProject(project)
   } catch (e) {
-    if (agent === current.value) error.value = formatDesktopError(e)
+    if (agent.id === current.value?.id) error.value = formatDesktopError(e)
   } finally {
-    if (agent === current.value) loading.value = false
+    if (agent.id === current.value?.id) loading.value = false
   }
 }
 
@@ -102,7 +109,7 @@ async function loadSessions(project: Project, loadingFlag = loadingMore) {
     const page = (await call<Session[] | null>(`io.xconn.deskconn.${agent.id}.session.list`, {
       path: project.path, offset: loaded.value, limit: PAGE_SIZE,
     })) ?? []
-    if (selected.value !== project || agent !== current.value) return
+    if (selected.value?.path !== project.path || agent.id !== current.value?.id) return
     loaded.value += page.length
     hasMore.value = page.length === PAGE_SIZE
     // Sessions without any chat yet (only settings records) have nothing to resume. One in use
@@ -153,6 +160,10 @@ watch(() => current.value?.id, () => {
   sessions.value = []
   loadProjects()
 }, { immediate: true })
+
+watch([() => current.value?.id, () => selected.value?.path], ([initialAgent, initialProject]) => {
+  emit('update-props', { initialAgent, initialProject })
+})
 </script>
 
 <template>

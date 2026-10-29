@@ -6,6 +6,7 @@ import { requestMachinesPicker } from '@/router/index'
 import { openLauncher, openWindowsOverview } from '@/router/navigation'
 import { useAccountPanelStore } from '@/stores/accountPanel'
 import { useSessionCacheStore } from '@/stores/sessionCache'
+import { useSettingsStore } from '@/stores/settings'
 import { useMachinesStore } from '@/stores/machines'
 
 export interface DockAppDef {
@@ -127,13 +128,23 @@ function loadPinnedOrder(): string[] {
   return []
 }
 
+const settingsStore = useSettingsStore()
 const pinnedOrder = ref<string[]>(loadPinnedOrder())
 
 // Reconcile stored order against the current app list: keep known ids in their
-// stored order, append any new ones, drop ids that no longer exist.
+// stored order, append any new ones, drop ids that no longer exist. The order
+// kept on the machine wins over this browser's once it's fetched.
 watch(
-  () => visibleApps.value.map((a) => a.id),
-  (ids) => {
+  [() => visibleApps.value.map((a) => a.id), () => settingsStore.getMachineSetting(props.realm, 'dock_pinned_order')],
+  ([ids, raw]) => {
+    if (raw) {
+      try {
+        pinnedOrder.value = JSON.parse(raw)
+        localStorage.setItem(storageKey, raw)
+      } catch {
+        // ignore malformed setting
+      }
+    }
     const idSet = new Set(ids)
     const kept = pinnedOrder.value.filter((id) => idSet.has(id))
     const missing = ids.filter((id) => !kept.includes(id))
@@ -143,8 +154,10 @@ watch(
 )
 
 function persistPinnedOrder() {
+  const raw = JSON.stringify(pinnedOrder.value)
+  settingsStore.setMachineSetting(props.realm, 'dock_pinned_order', raw)
   try {
-    localStorage.setItem(storageKey, JSON.stringify(pinnedOrder.value))
+    localStorage.setItem(storageKey, raw)
   } catch {
     // storage failure is non-fatal
   }

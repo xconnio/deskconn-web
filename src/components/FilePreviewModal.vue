@@ -46,6 +46,8 @@ const emit = defineEmits<{
   'open-files': [path: string]
   'preview-file': [session: Session, entry: PreviewEntry, entries: PreviewEntry[]]
   'open-text-editor': [session: Session, entry: PreviewEntry]
+  // Saved with the window, so it reopens on the file stepped to.
+  'update-props': [props: { entry: PreviewEntry }]
 }>()
 
 // Absent when there's no FloatingWindow ancestor — the download button then
@@ -68,6 +70,7 @@ const canGoNext = computed(() => previewType.value === 'image' && currentImageIn
 function goToEntry(target: PreviewEntry) {
   currentEntry.value = target
   emit('update-title', target.name)
+  emit('update-props', { entry: target })
   openFile()
 }
 
