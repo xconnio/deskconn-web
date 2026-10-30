@@ -1,9 +1,14 @@
 import { ref } from 'vue'
 import { defineStore } from 'pinia'
 
+import { useSessionCacheStore } from '@/stores/sessionCache'
+
 export type DockPosition = 'bottom' | 'left' | 'right'
 
 const VALID_DOCK_POSITIONS: DockPosition[] = ['bottom', 'left', 'right']
+
+const PROCEDURE_MACHINE_SETTINGS_LIST = 'io.xconn.deskconn.settings.list'
+const PROCEDURE_MACHINE_SETTINGS_SAVE = 'io.xconn.deskconn.settings.save'
 
 function readDockPosition(realm: string): DockPosition {
   const stored = localStorage.getItem(`setting_dock_position_${realm}`)
@@ -15,6 +20,7 @@ function readResourceMonitorInterval(realm: string): number {
 }
 
 export const useSettingsStore = defineStore('settings', () => {
+  const sessionCacheStore = useSessionCacheStore()
   const lastRealm = ref(localStorage.getItem('setting_last_realm'))
   // Defaults to on for touch-only devices: iPad Safari has no reliable double-tap.
   const singleClickOpen = ref(
@@ -29,6 +35,55 @@ export const useSettingsStore = defineStore('settings', () => {
   const dockPositions = ref<Record<string, DockPosition>>({})
   const resourceMonitorIntervals = ref<Record<string, number>>({})
 
+  // The user's settings kept on the machine itself (deskconnd's settings.list/save), so
+  // they follow them to any browser: string values by key, per realm. Missing until
+  // fetched, or on a deskconnd too old to keep them — localStorage stays the fallback.
+  const machineSettings = ref<Record<string, Record<string, string>>>({})
+
+  async function fetchMachineSettings(realm: string) {
+    const session = await sessionCacheStore.acquire(realm)
+    if (!session) return
+    try {
+      const result = await session.call(PROCEDURE_MACHINE_SETTINGS_LIST)
+      const values = (result.args?.[0] as Record<string, string>) ?? {}
+      machineSettings.value[realm] = values
+      // Mirrored into localStorage too, so the next load starts out right.
+      if (VALID_DOCK_POSITIONS.includes(values.dock_position as DockPosition)) {
+        dockPositions.value[realm] = values.dock_position as DockPosition
+        localStorage.setItem(`setting_dock_position_${realm}`, values.dock_position!)
+      }
+      const interval = parseInt(values.resource_monitor_interval ?? '', 10)
+      if (interval > 0) {
+        resourceMonitorIntervals.value[realm] = interval
+        localStorage.setItem(`setting_resource_monitor_interval_${realm}`, String(interval))
+      }
+    } catch {
+      // Older deskconnd without settings: keep this browser's.
+    }
+  }
+
+  function getMachineSetting(realm: string, key: string): string | undefined {
+    return machineSettings.value[realm]?.[key]
+  }
+
+  // Only sent when it differs from what the machine has, and over an already-live
+  // session — never worth (re)connecting a machine for. The cache only takes values
+  // the machine took, so one that failed to send is sent again next time.
+  function setMachineSetting(realm: string, key: string, value: string) {
+    if (machineSettings.value[realm]?.[key] === value) return
+    if (!sessionCacheStore.isActive(realm)) return
+    const settings = (machineSettings.value[realm] ??= {})
+    const previous = settings[key]
+    settings[key] = value
+    sessionCacheStore.acquire(realm)
+      .then((session) => session?.call(PROCEDURE_MACHINE_SETTINGS_SAVE, [key, value]))
+      .catch(() => {
+        if (settings[key] !== value) return
+        if (previous === undefined) delete settings[key]
+        else settings[key] = previous
+      })
+  }
+
   function getDockPosition(realm: string): DockPosition {
     if (!(realm in dockPositions.value)) {
       dockPositions.value[realm] = readDockPosition(realm)
@@ -39,6 +94,7 @@ export const useSettingsStore = defineStore('settings', () => {
   function setDockPosition(realm: string, value: DockPosition) {
     dockPositions.value[realm] = value
     localStorage.setItem(`setting_dock_position_${realm}`, value)
+    setMachineSetting(realm, 'dock_position', value)
   }
 
   function getResourceMonitorInterval(realm: string): number {
@@ -51,6 +107,7 @@ export const useSettingsStore = defineStore('settings', () => {
   function setResourceMonitorInterval(realm: string, value: number) {
     resourceMonitorIntervals.value[realm] = value
     localStorage.setItem(`setting_resource_monitor_interval_${realm}`, String(value))
+    setMachineSetting(realm, 'resource_monitor_interval', String(value))
   }
 
   function setSingleClickOpen(value: boolean) {
@@ -89,5 +146,6 @@ export const useSettingsStore = defineStore('settings', () => {
     showLogicalCpus, setShowLogicalCpus,
     getDockPosition, setDockPosition,
     getResourceMonitorInterval, setResourceMonitorInterval,
+    fetchMachineSettings, getMachineSetting, setMachineSetting,
   }
 })

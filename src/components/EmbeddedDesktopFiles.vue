@@ -50,12 +50,15 @@ const props = defineProps<{
   desktopName?: string
   initialPath?: string
   initialOpenFile?: string
+  initialShowHidden?: boolean
   focused?: boolean
 }>()
 
 const emit = defineEmits<{
   'preview-file': [session: Session, entry: { path: string; name: string; size: number }, entries: { path: string; name: string; size: number }[]]
   'open-text-editor': [session: Session, entry: FileEntry]
+  // Saved with the window, so it reopens where it was left.
+  'update-props': [props: { initialPath: string; initialShowHidden: boolean }]
   // Not emitted by this component — declared so Vue treats the listeners
   // DesktopSessionHost.vue binds generically to every app window (@close,
   // @open-files, @update-title) as custom events rather than attrs it tries
@@ -120,7 +123,7 @@ const hasMore = ref(false)
 const isLoadingMore = ref(false)
 const selectedEntry = ref<FileEntry | null>(null)
 const pathInput = ref('')
-const showHiddenFiles = ref(false)
+const showHiddenFiles = ref(props.initialShowHidden ?? false)
 const searchMode = ref(false)
 const entryListRef = ref<HTMLElement | null>(null)
 const explorerShellRef = ref<HTMLElement | null>(null)
@@ -1227,6 +1230,10 @@ function handleGlobalKeydown(e: KeyboardEvent) {
 
   handleNavKey(e)
 }
+
+watch([() => currentBrowse.value?.path, showHiddenFiles], ([path, showHidden]) => {
+  if (path) emit('update-props', { initialPath: path, initialShowHidden: showHidden })
+})
 
 watch(showHiddenFiles, (enabled) => {
   if (enabled) return

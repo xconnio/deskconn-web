@@ -48,6 +48,22 @@ export interface ContainerRect {
   height: number
 }
 
+/** A window as saved to reopen later: its home bounds (see setHome), unmaximized, with
+ * the container they were set against, so a smaller browser scales them down. */
+export interface SavedWindow {
+  appId: string
+  title: string
+  icon: string
+  iconColor: string
+  iconBg: string
+  minWidth?: number
+  minimized: boolean
+  maximized: boolean
+  bounds: WindowBounds
+  container: ContainerRect
+  props: Record<string, unknown>
+}
+
 const DEFAULT_WIDTH = 720
 const DEFAULT_HEIGHT = 480
 const CASCADE_STEP = 28
@@ -203,6 +219,56 @@ export function useWindowManager() {
     return id
   }
 
+  // Bottom to top, so restoring them in order keeps their stacking.
+  function savedWindows(): SavedWindow[] {
+    return [...windows.value].sort((a, b) => a.zIndex - b.zIndex).map((win) => {
+      const home = homeById.get(win.id)
+      const bounds = (win.maximized ? win.prevBounds : home?.bounds)
+        ?? { x: win.x, y: win.y, width: win.width, height: win.height }
+      return {
+        appId: win.appId,
+        title: win.title,
+        icon: win.icon,
+        iconColor: win.iconColor,
+        iconBg: win.iconBg,
+        minWidth: win.minWidth,
+        minimized: win.minimized,
+        maximized: win.maximized,
+        bounds,
+        container: home?.container ?? lastContainer ?? { x: 0, y: 0, width: bounds.width, height: bounds.height },
+        props: win.props,
+      }
+    })
+  }
+
+  function restoreWindows(saved: SavedWindow[], container: ContainerRect) {
+    for (const s of saved) {
+      const win: AppWindow = {
+        id: `win-${nextId++}`,
+        appId: s.appId,
+        title: s.title,
+        icon: s.icon,
+        iconColor: s.iconColor,
+        iconBg: s.iconBg,
+        ...s.bounds,
+        minWidth: s.minWidth,
+        zIndex: ++nextZ,
+        minimized: s.minimized,
+        maximized: false,
+        props: s.props,
+      }
+      if (s.maximized) {
+        win.prevBounds = { ...s.bounds }
+        Object.assign(win, { x: container.x, y: container.y, width: container.width, height: container.height })
+        win.maximized = true
+      }
+      windows.value.push(win)
+      homeById.set(win.id, { bounds: { ...s.bounds }, container: s.container })
+    }
+    fitWindowsToContainer(container)
+    refocusTopWindow()
+  }
+
   function closeWindow(id: string) {
     windows.value = windows.value.filter((w) => w.id !== id)
     homeById.delete(id)
@@ -337,5 +403,7 @@ export function useWindowManager() {
     updateTitle,
     syncMaximizedBounds,
     fitWindowsToContainer,
+    savedWindows,
+    restoreWindows,
   }
 }

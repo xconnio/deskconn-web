@@ -16,8 +16,21 @@ import { openShell, type ShellExec, type ShellHandle } from '@/services/shellStr
 import { isDataChannelClosedError, formatDesktopError } from '@/utils/desktopError'
 
 // exec runs in the first tab only; later tabs are plain shells.
-const props = defineProps<{ realm: string; desktopName: string; embedded?: boolean; focused?: boolean; exec?: ShellExec }>()
-const emit = defineEmits<{ close: [] }>()
+// initialTabs and initialActiveTab reopen as many tabs, as fresh shells, on the same one.
+const props = defineProps<{
+  realm: string
+  desktopName: string
+  embedded?: boolean
+  focused?: boolean
+  exec?: ShellExec
+  initialTabs?: number
+  initialActiveTab?: number
+}>()
+const emit = defineEmits<{
+  close: []
+  // Saved with the window.
+  'update-props': [props: { initialTabs: number; initialActiveTab: number }]
+}>()
 
 const sessionCacheStore = useSessionCacheStore()
 
@@ -704,7 +717,18 @@ onMounted(async () => {
   observePanelSize()
   updateKeybarPosition()
 
-  await addTab()
+  for (let i = 0; i < Math.max(1, props.initialTabs ?? 1); i++) await addTab()
+  const active = tabs.value[props.initialActiveTab ?? -1]
+  if (active) await switchTab(active.id)
+  tabsRestored = true
+})
+
+// Not while the saved tabs are still being reopened, which would save over them.
+let tabsRestored = false
+watch([() => tabs.value.length, activeTabId], ([count, id]) => {
+  if (tabsRestored && count) {
+    emit('update-props', { initialTabs: count, initialActiveTab: tabs.value.findIndex((t) => t.id === id) })
+  }
 })
 
 onUnmounted(() => {
