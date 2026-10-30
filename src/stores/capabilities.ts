@@ -16,6 +16,8 @@ export interface Capability {
   requires: string[]
   /** The procedure to exchange keys with before calling the app's procedures. */
   key_exchange?: string
+  /** A manifest app: its UI is YAML the client renders (see ManifestAppPanel). */
+  manifest?: boolean
 }
 
 export const useCapabilitiesStore = defineStore('capabilities', () => {
