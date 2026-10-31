@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, inject, nextTick, onMounted, onUnmounted, reactive, ref, shallowRef, watch } from 'vue'
 import type { Command } from '@/stores/commandPalette'
-import { ApplicationError, type Session } from 'xconn'
+import { ApplicationError, type Session } from '@/services/xconn'
 
 import { useSessionCacheStore } from '@/stores/sessionCache'
 import { useSessionEncryptionStore } from '@/stores/sessionEncryption'

@@ -11,7 +11,7 @@
  */
 import { ref, reactive, computed, inject, watch, nextTick, onMounted, onUnmounted, shallowRef } from 'vue'
 import { isMac, MOD, type Command } from '@/stores/commandPalette'
-import { type Session } from 'xconn'
+import { type Session } from '@/services/xconn'
 import { floatingWindowActionsKey, floatingWindowToolbarKey } from '@/composables/floatingWindowToolbar'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import type { CloseConfirm } from '@/composables/useWindowManager'

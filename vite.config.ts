@@ -55,6 +55,9 @@ export default defineConfig(({ mode }) => {
       appConfigDevPlugin(env),
       serviceWorkerDevPlugin(),
     ],
+    optimizeDeps: {
+      exclude: ['@xconnio/core'],
+    },
     resolve: {
       alias: {
         '@': fileURLToPath(new URL('./src', import.meta.url)),

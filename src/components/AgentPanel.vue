@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, shallowRef, watch } from 'vue'
-import type { Session as WampSession } from 'xconn'
+import type { Session as WampSession } from '@/services/xconn'
 import GitFolderPicker from './GitFolderPicker.vue'
 import { useSessionCacheStore } from '../stores/sessionCache'
 import { useSessionEncryptionStore } from '../stores/sessionEncryption'

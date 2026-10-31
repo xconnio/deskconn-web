@@ -1,5 +1,4 @@
-import { ClientConfig } from 'xconn-webrtc-js'
-import { CBORSerializer, type ClientAuthenticator } from 'xconn'
+import { ClientConfig, CBORSerializer, type ClientAuthenticator } from '@/services/xconn'
 
 import { wampService, type WampSession } from './wamp'
 import { REGISTRATION_AUTHID, REGISTRATION_PRIVATE_KEY, WAMP_REALM } from '../config'

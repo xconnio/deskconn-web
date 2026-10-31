@@ -4,7 +4,7 @@ import { useAuthStore } from '../stores/auth'
 import { useMachinesStore } from '../stores/machines'
 import { authService } from '../services/authService'
 import type { DesktopUserAccess, DesktopOrganizationAccess, Organization, DesktopInvite } from '../types'
-import { ApplicationError } from 'xconn'
+import { ApplicationError } from '@/services/xconn'
 
 // Only ever rendered as a drill-down inside AccountPanel's popup Machines
 // list — takes `machineId` as a prop and emits `back`/`open-org` instead of

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, provide, reactive, ref, shallowRef, watch } from 'vue'
-import type { Session } from 'xconn'
+import type { Session } from '@/services/xconn'
 import type { FileEntry } from '@/types'
 import type { EncryptionKeys } from '@/utils/encryption'
 import { createFileBrowser } from '@/utils/fileBrowse'

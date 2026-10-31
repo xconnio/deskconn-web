@@ -9,7 +9,7 @@
  * relay, whichever the session has.
  */
 import { ref, computed, inject, onMounted, onUnmounted } from 'vue'
-import { type Session } from 'xconn'
+import { type Session } from '@/services/xconn'
 import { floatingWindowActionsKey } from '@/composables/floatingWindowToolbar'
 import { canStreamRanges, requestRangeStream } from '@/services/fileStream'
 import { uploadFileToPath, type UploadProgress } from '@/utils/fileUpload'

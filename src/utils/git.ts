@@ -3,7 +3,7 @@
  * filegit.go). Same encrypt/call/decrypt shape as TextEditor.vue's saveFile and
  * EmbeddedDesktopFiles.vue's callFileOperation.
  */
-import type { Session } from 'xconn'
+import type { Session } from '@/services/xconn'
 import { encryptPayload, decryptPayload, type EncryptionKeys } from '@/utils/encryption'
 
 const procedureGitStatus = 'io.xconn.deskconn.git.status'

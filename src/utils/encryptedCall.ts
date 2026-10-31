@@ -1,4 +1,4 @@
-import type { Session } from 'xconn'
+import type { Session } from '@/services/xconn'
 import { useSessionEncryptionStore } from '@/stores/sessionEncryption'
 import { encryptPayload, decryptPayload } from '@/utils/encryption'
 import { isKeysRejectedError } from '@/utils/desktopError'

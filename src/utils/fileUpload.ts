@@ -4,7 +4,7 @@
  * does its own key exchange, so — unlike the old shared-session-key RPC this
  * replaces — nothing here is shared across windows/callers.
  */
-import { type Session } from 'xconn'
+import { type Session } from '@/services/xconn'
 import { uploadFile, type UploadProgress } from '@/services/fileStream'
 import { notifyFileChanged } from '@/utils/fileChanges'
 import { joinPath } from '@/utils/filePath'

@@ -5,8 +5,8 @@ import {
   type Session,
   WAMPCRAAuthenticator,
   CryptoSignAuthenticator,
-} from 'xconn'
-import { connectWAMP, ClientConfig, type WebRTCSession } from 'xconn-webrtc-js'
+} from '@/services/xconn'
+import { connectWAMP, ClientConfig, type WebRTCSession } from '@/services/xconn'
 
 import { WAMP_WT_URL, WAMP_WT_CERT_URL, WAMP_REALM } from '../config'
 
@@ -80,10 +80,7 @@ export function normalizeStandaloneURL(raw: string): string {
   return u.toString()
 }
 
-// Define a type for the session to improve type safety if xconn exports one,
-// otherwise use any/unknown but document it. Using 'any' for now as xconn types are not fully exposed in this context.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type WampSession = any
+export type WampSession = Session
 
 export const wampService = {
   async connectWithCRA(authId: string, secret: string): Promise<WampSession> {
