@@ -50,8 +50,8 @@ const globalCommands = computed<Command[]>(() => {
     const step = (dir: number) =>
       openLauncher(realms[idx === -1 ? (dir > 0 ? 0 : realms.length - 1) : (idx + dir + realms.length) % realms.length]!)
     list.push(
-      { id: 'machine:next', group: 'Switch machine', label: 'Next machine', icon: 'bi-chevron-double-right', keywords: 'switch', shortcut: { code: 'BracketRight', alt: true, shift: true }, run: () => step(1) },
-      { id: 'machine:prev', group: 'Switch machine', label: 'Previous machine', icon: 'bi-chevron-double-left', keywords: 'switch', shortcut: { code: 'BracketLeft', alt: true, shift: true }, run: () => step(-1) },
+      { id: 'machine:next', group: 'Switch machine', label: 'Next machine', icon: 'bi-chevron-double-right', keywords: 'switch', shortcut: { code: 'ArrowDown', alt: true, shift: true }, run: () => step(1) },
+      { id: 'machine:prev', group: 'Switch machine', label: 'Previous machine', icon: 'bi-chevron-double-left', keywords: 'switch', shortcut: { code: 'ArrowUp', alt: true, shift: true }, run: () => step(-1) },
     )
   }
   for (const d of machinesStore.desktops) {
@@ -172,10 +172,11 @@ function onInputKeydown(e: KeyboardEvent) {
   }
 }
 
-const KEY_LABELS: Record<string, string> = { BracketLeft: '[', BracketRight: ']' }
+const KEY_LABELS: Record<string, string> = { ArrowLeft: '←', ArrowRight: '→', ArrowUp: '↑', ArrowDown: '↓' }
 
 function shortcutKeys(s: Shortcut): string[] {
   return [
+    ...(s.ctrl ? [isMac ? '⌃' : 'Ctrl'] : []),
     ...(s.alt ? [isMac ? '⌥' : 'Alt'] : []),
     ...(s.shift ? [isMac ? '⇧' : 'Shift'] : []),
     KEY_LABELS[s.code] ?? s.code.replace(/^Key|^Digit/, ''),
@@ -183,11 +184,11 @@ function shortcutKeys(s: Shortcut): string[] {
 }
 
 function matchesShortcut(e: KeyboardEvent, s: Shortcut): boolean {
-  return e.code === s.code && e.altKey === !!s.alt && e.shiftKey === !!s.shift && !e.ctrlKey && !e.metaKey
+  return e.code === s.code && e.altKey === !!s.alt && e.shiftKey === !!s.shift && e.ctrlKey === !!s.ctrl && !e.metaKey
 }
 
 // Capture phase so it fires before apps' own handlers (e.g. the file browser,
-// or xterm turning Alt+] into an escape sequence).
+// or xterm sending the keys to the shell).
 // Ctrl/Cmd+Shift+K rather than plain K, which the terminal's shell uses (kill-line).
 function onGlobalKeydown(e: KeyboardEvent) {
   if (!authStore.isAuthenticated) return

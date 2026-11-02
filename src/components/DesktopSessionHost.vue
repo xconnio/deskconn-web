@@ -804,8 +804,8 @@ watch(
     }))
     const cycle = windows.value.length > 1
       ? [
-          { id: 'win:next', group: 'Window', label: 'Next window', icon: 'bi-arrow-right-square', keywords: 'switch app', shortcut: { code: 'BracketRight', alt: true }, run: () => cycleWindow(1) },
-          { id: 'win:prev', group: 'Window', label: 'Previous window', icon: 'bi-arrow-left-square', keywords: 'switch app', shortcut: { code: 'BracketLeft', alt: true }, run: () => cycleWindow(-1) },
+          { id: 'win:next', group: 'Window', label: 'Next window', icon: 'bi-arrow-right-square', keywords: 'switch app', shortcut: { code: 'ArrowRight', alt: true, shift: true }, run: () => cycleWindow(1) },
+          { id: 'win:prev', group: 'Window', label: 'Previous window', icon: 'bi-arrow-left-square', keywords: 'switch app', shortcut: { code: 'ArrowLeft', alt: true, shift: true }, run: () => cycleWindow(-1) },
         ]
       : []
     const focused = windows.value.find((w) => w.id === focusedId.value)
