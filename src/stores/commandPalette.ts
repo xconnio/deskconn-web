@@ -2,8 +2,9 @@ import { ref } from 'vue'
 import { defineStore } from 'pinia'
 
 export interface Shortcut {
-  /** KeyboardEvent.code, so it's layout-independent (⌥] on a Mac types ‘). */
+  /** KeyboardEvent.code, so it's layout-independent. */
   code: string
+  ctrl?: boolean
   alt?: boolean
   shift?: boolean
 }
