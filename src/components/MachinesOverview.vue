@@ -1,16 +1,17 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, type ComponentPublicInstance } from 'vue'
+import { computed, type ComponentPublicInstance } from 'vue'
 import { useMachinesStore } from '@/stores/machines'
+import { useSettingsStore } from '@/stores/settings'
 import { useDesktopSessionsStore } from '@/stores/desktopSessions'
 import { useMachinesOverviewStore } from '@/stores/machinesOverview'
 import { openLauncher } from '@/router/navigation'
 import { machinesOverviewReturnRealm } from '@/router/index'
-import { loadCachedWallpaper } from '@/composables/useWallpaperCache'
 import OverviewGrid from '@/components/OverviewGrid.vue'
 
 interface DesktopCard { id: string; realm: string; name: string; icon: string }
 
 const machinesStore = useMachinesStore()
+const settingsStore = useSettingsStore()
 const desktopSessionsStore = useDesktopSessionsStore()
 const machinesOverviewStore = useMachinesOverviewStore()
 
@@ -30,27 +31,6 @@ const displayDesktops = computed<DesktopCard[]>(() => {
     .map((realm) => ({ id: realm, realm, name: realm, icon: '🖥️' }))
   return [...known.map((d) => ({ ...d, id: d.realm })), ...extra]
 })
-
-// A card's image is just that machine's cached wallpaper — a per-window
-// screenshot was tried and dropped: it wasn't reliably accurate (stale or
-// blank captures), so this favors "always correct, sometimes generic" over
-// "sometimes wrong."
-const cardImages = ref<Record<string, string | null>>({})
-
-function setCardImage(realm: string, url: string | null) {
-  const prev = cardImages.value[realm]
-  if (prev && prev !== url) URL.revokeObjectURL(prev)
-  cardImages.value[realm] = url
-}
-
-async function loadCardImages() {
-  for (const desktop of displayDesktops.value) {
-    const wallpaper = await loadCachedWallpaper(desktop.realm)
-    setCardImage(desktop.realm, wallpaper?.url ?? null)
-  }
-}
-
-onMounted(loadCardImages)
 
 // Registers this card's slot for DesktopSessionHost to teleport its live desktop into.
 function setPreviewTarget(realm: string, el: Element | null) {
@@ -101,10 +81,7 @@ function closeOverview() {
     @back="closeOverview"
   >
     <template #preview="{ entry }">
-      <img v-if="cardImages[entry.realm]" :src="cardImages[entry.realm]!" alt="" class="machines-card-image" />
-      <div v-else class="machines-card-placeholder">
-        <i class="bi bi-pc-display"></i>
-      </div>
+      <div class="machines-card-image" :style="{ backgroundImage: settingsStore.getWallpaperGradientCss(entry.realm) }"></div>
 
       <div class="preview-live" :ref="previewRef(entry.realm)"></div>
 
@@ -139,19 +116,7 @@ function closeOverview() {
   inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: cover;
-  object-position: center;
   pointer-events: none;
-}
-
-.machines-card-placeholder {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: rgba(255, 255, 255, 0.35);
-  font-size: 2rem;
 }
 
 .preview-live {

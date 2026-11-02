@@ -27,22 +27,6 @@ const settingsStore = useSettingsStore()
           </div>
         </div>
 
-        <div class="discord-row">
-          <div class="discord-row-value">Use remote wallpaper</div>
-          <div class="form-check form-switch mb-0">
-            <input
-              class="form-check-input settings-toggle"
-              type="checkbox"
-              role="switch"
-              id="remoteWallpaperToggle"
-              :checked="settingsStore.useRemoteWallpaper"
-              @change="settingsStore.setUseRemoteWallpaper(($event.target as HTMLInputElement).checked)"
-            />
-            <label class="form-check-label visually-hidden" for="remoteWallpaperToggle">
-              Use remote wallpaper
-            </label>
-          </div>
-        </div>
       </div>
     </div>
   </div>

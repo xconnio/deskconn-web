@@ -8,15 +8,12 @@ import type { AppWindow, CloseableWindowInstance, SavedWindow } from '@/composab
 
 import { useMachinesStore } from '@/stores/machines'
 import { useSettingsStore } from '@/stores/settings'
-import { useAuthStore } from '@/stores/auth'
 import { useSessionCacheStore } from '@/stores/sessionCache'
 import { useDesktopSessionsStore } from '@/stores/desktopSessions'
 import { useMachinesOverviewStore } from '@/stores/machinesOverview'
 import { useWindowsOverviewStore } from '@/stores/windowsOverview'
 import { useCapabilitiesStore } from '@/stores/capabilities'
-import { useSessionEncryptionStore } from '@/stores/sessionEncryption'
 import { useCommandPaletteStore, type PaletteCommandSource } from '@/stores/commandPalette'
-import { decryptPayload } from '@/utils/encryption'
 import EmbeddedDesktopFiles from '@/components/EmbeddedDesktopFiles.vue'
 import TerminalPanel from '@/components/TerminalPanel.vue'
 import ResourceMonitor from '@/components/ResourceMonitor.vue'
@@ -28,7 +25,6 @@ import ScreenshotPanel from '@/components/ScreenshotPanel.vue'
 import FloatingWindow from '@/components/FloatingWindow.vue'
 import AppDock from '@/components/AppDock.vue'
 import DownloadToast from '@/components/DownloadToast.vue'
-import { deleteWallpaper, loadCachedWallpaper, storeWallpaper } from '@/composables/useWallpaperCache'
 import { getFilePreviewType, type FilePreviewType } from '@/utils/fileTypes'
 import type { ShellExec } from '@/services/shellStream'
 import { downloadFile, type DownloadProgressState } from '@/utils/fileDownload'
@@ -39,13 +35,11 @@ const props = defineProps<{ realm: string; active: boolean; dockElsewhere?: bool
 
 const machinesStore = useMachinesStore()
 const settingsStore = useSettingsStore()
-const authStore = useAuthStore()
 const sessionCacheStore = useSessionCacheStore()
 const desktopSessionsStore = useDesktopSessionsStore()
 const machinesOverviewStore = useMachinesOverviewStore()
 const windowsOverviewStore = useWindowsOverviewStore()
 const capabilitiesStore = useCapabilitiesStore()
-const encryptionStore = useSessionEncryptionStore()
 
 const desktopName = computed(() => machinesStore.desktops.find((d) => d.realm === props.realm)?.name ?? props.realm)
 
@@ -85,8 +79,6 @@ watch(
 )
 
 const launcherBodyRef = ref<HTMLElement | null>(null)
-const wallpaperUrl = ref<string | null>(null)
-let activeWallpaperObjUrl: string | null = null
 
 // Frozen at the last real size — a backgrounded instance is display:none and reads 0.
 const lastKnownSize = ref({ width: 0, height: 0 })
@@ -138,9 +130,7 @@ const previewScale = computed(() => {
 })
 
 const launcherBodyStyle = computed(() => {
-  const style: Record<string, string> = wallpaperUrl.value
-    ? { backgroundImage: `url(${wallpaperUrl.value})`, backgroundSize: 'cover', backgroundPosition: 'center' }
-    : {}
+  const style: Record<string, string> = { backgroundImage: settingsStore.getWallpaperGradientCss(props.realm) }
   const scale = previewScale.value
   if (!scale) return style
   return {
@@ -231,87 +221,13 @@ watch(
   { immediate: true },
 )
 
-function applyWallpaperUrl(url: string | null) {
-  if (activeWallpaperObjUrl && activeWallpaperObjUrl !== url) URL.revokeObjectURL(activeWallpaperObjUrl)
-  activeWallpaperObjUrl = url
-  wallpaperUrl.value = url
-}
-
-async function fetchWallpaper() {
-  if (!settingsStore.useRemoteWallpaper) {
-    wallpaperUrl.value = null
-    return
-  }
-
-  // Show persisted wallpaper immediately without any network call
-  const cached = await loadCachedWallpaper(props.realm)
-  applyWallpaperUrl(cached?.url ?? null)
-
-  // Own throwaway session, deliberately not the shared/cached one: wallpaper.get can
-  // return a multi-MB image that exceeds the transport's single-frame size limit, which
-  // kills the whole stream it was sent on. Opened as its own stream on the shared
-  // connection, so that failure can only cost the wallpaper, not the desktop session
-  // everything else (terminal, files, ping) relies on.
-  let session: Session | null = null
-  try {
-    const shared = await sessionCacheStore.acquire(props.realm)
-    if (!shared) return
-    session = await authStore.openSession(props.realm, shared)
-    if (!session) return
-    const s = session
-
-    // remotecontrol-app serves the wallpaper, with its own key exchange, while its screen
-    // app is registered. Older machines serve it from deskconnd.
-    if (!capabilitiesStore.byRealm[props.realm]) await capabilitiesStore.fetch(props.realm)
-    const keyExchange = capabilitiesStore.isListed(props.realm, 'screen')
-      ? capabilitiesStore.keyExchange(props.realm, 'screen')
-      : undefined
-    const prefix = keyExchange ? 'io.xconn.remotecontrol' : 'io.xconn.deskconn'
-
-    // The desktop keys by caller session, so this session needs its own exchange —
-    // going through the realm-keyed shared cache would hand it (and then clobber)
-    // the main session's keys, and the calls below would be rejected.
-    const keys = await encryptionStore.exchange(s, keyExchange)
-    const call = async <T,>(procedure: string): Promise<T> => {
-      const encrypted = (await s.call(procedure)).args?.[0] as Uint8Array
-      if (!encrypted?.length) throw new Error(`Empty response from ${procedure}`)
-      return JSON.parse(new TextDecoder().decode(decryptPayload(encrypted, keys.decryptKey))) as T
-    }
-
-    // Cheap checksum check — only download the full image when it has changed. The
-    // machine not serving the wallpaper (anymore) drops the cached one.
-    let remoteChecksum: string
-    let wallpaper: { mime: string; data: string }
-    try {
-      remoteChecksum = await call<string>(`${prefix}.wallpaper.checksum`)
-      if (cached?.checksum === remoteChecksum) return
-      wallpaper = await call<{ mime: string; data: string }>(`${prefix}.wallpaper.get`)
-    } catch {
-      await deleteWallpaper(props.realm)
-      applyWallpaperUrl(null)
-      return
-    }
-    if (!wallpaper.data) return
-    const data = Uint8Array.from(atob(wallpaper.data), (c) => c.charCodeAt(0))
-
-    const newUrl = await storeWallpaper(props.realm, data, wallpaper.mime, remoteChecksum)
-    applyWallpaperUrl(newUrl)
-  } catch {
-    // silently ignore — wallpaper is optional
-  } finally {
-    if (session) session.leave().catch(() => {})
-  }
-}
-
 // The entrance animation plays once, on first show. App.vue hides this host
 // with v-show rather than unmounting it, and a CSS animation replays every
 // time its element goes from display:none back to shown — so returning to
 // the same machine would otherwise look like a fresh load.
 const hasEntered = ref(false)
 
-// Blurs the desktop until the backend session is actually up — independent
-// of the wallpaper fetch above, which is opt-in via a setting and shouldn't
-// gate this.
+// Blurs the desktop until the backend session is actually up.
 const isConnecting = ref(true)
 
 // Set whenever there's no live session — the initial connect failed (e.g.
@@ -950,7 +866,6 @@ let launcherBodyResizeObserver: ResizeObserver | null = null
 onMounted(() => {
   window.addEventListener('resize', updateIsMobile)
   connect()
-  fetchWallpaper()
   measureDockThickness()
 
   if (launcherBodyRef.value && typeof ResizeObserver !== 'undefined') {
@@ -974,7 +889,6 @@ onUnmounted(() => {
   previewTargetResizeObserver?.disconnect()
   for (const observer of windowPreviewObservers.values()) observer.disconnect()
   windowPreviewObservers.clear()
-  if (activeWallpaperObjUrl) URL.revokeObjectURL(activeWallpaperObjUrl)
 })
 </script>
 
@@ -989,7 +903,7 @@ onUnmounted(() => {
     <div
       ref="launcherBodyRef"
       class="launcher-body"
-      :class="{ 'has-wallpaper': !!wallpaperUrl, 'is-connecting': isConnecting, 'is-disconnected': isDisconnected }"
+      :class="{ 'is-connecting': isConnecting, 'is-disconnected': isDisconnected }"
       :style="launcherBodyStyle"
       @touchstart.passive="onSwipeStart"
       @touchend.passive="onSwipeEnd"
@@ -1096,8 +1010,6 @@ onUnmounted(() => {
   min-height: 0;
   overflow: hidden;
   background-color: #000;
-  /* Default wallpaper, same as the mobile app's; a remote one replaces it via the inline backgroundImage. */
-  background-image: linear-gradient(135deg, #0f2027 0%, #203a43 50%, #2c5364 100%);
   transition: filter 0.2s ease;
 }
 

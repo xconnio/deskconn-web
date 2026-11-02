@@ -325,14 +325,6 @@ export const useAuthStore = defineStore('auth', () => {
     return await authService.shellWebRTCDesktop(authenticator, realm, routed)
   }
 
-  // An extra WAMP session as a new stream on the routed session's WebTransport
-  // connection; its leave() ends only that stream, not the connection.
-  async function openSession(realm: string, routed: WampSession) {
-    const authenticator = await desktopAuthenticator()
-    if (!authenticator) return null
-    return await routed.openSession(realm, authenticator)
-  }
-
   // Drops a principal key that's no longer good (expired/deleted/rejected)
   // instead of retrying it forever on every load, and clears the stale
   // "logged in" state so the router sends the user back to /login.
@@ -487,6 +479,5 @@ export const useAuthStore = defineStore('auth', () => {
     updateProfile,
     shellWamp,
     shellWebRTC,
-    openSession,
   }
 })

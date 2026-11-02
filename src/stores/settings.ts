@@ -7,6 +7,25 @@ export type DockPosition = 'bottom' | 'left' | 'right'
 
 const VALID_DOCK_POSITIONS: DockPosition[] = ['bottom', 'left', 'right']
 
+// The wallpapers a user can pick from; the first is the default, same as the mobile app's.
+// Dark enough for the desktop's white icon labels and machine badge to stay readable.
+export const WALLPAPER_GRADIENTS = [
+  { id: '', label: 'Default', css: 'linear-gradient(135deg, #0f2027 0%, #203a43 50%, #2c5364 100%)' },
+  { id: 'midnight', label: 'Midnight', css: 'linear-gradient(135deg, #0f172a, #1e3a8a)' },
+  { id: 'ocean', label: 'Ocean', css: 'linear-gradient(135deg, #0c4a6e, #0f766e)' },
+  { id: 'forest', label: 'Forest', css: 'linear-gradient(135deg, #052e16, #15803d)' },
+  { id: 'dreamweaver', label: 'Dreamweaver', css: 'linear-gradient(135deg, #1c3306, #34610c)' },
+  { id: 'aurora', label: 'Aurora', css: 'linear-gradient(135deg, #134e4a, #4338ca)' },
+  { id: 'dusk', label: 'Dusk', css: 'linear-gradient(135deg, #312e81, #be185d)' },
+  { id: 'sunset', label: 'Sunset', css: 'linear-gradient(135deg, #7c2d12, #be123c)' },
+  { id: 'plum', label: 'Plum', css: 'linear-gradient(135deg, #3b0764, #9333ea)' },
+  { id: 'graphite', label: 'Graphite', css: 'linear-gradient(135deg, #18181b, #52525b)' },
+]
+
+function validGradientId(id: string | null | undefined): string {
+  return WALLPAPER_GRADIENTS.some((g) => g.id === id) ? id! : ''
+}
+
 const PROCEDURE_MACHINE_SETTINGS_LIST = 'io.xconn.deskconn.settings.list'
 const PROCEDURE_MACHINE_SETTINGS_SAVE = 'io.xconn.deskconn.settings.save'
 
@@ -26,7 +45,6 @@ export const useSettingsStore = defineStore('settings', () => {
   const singleClickOpen = ref(
     (localStorage.getItem('setting_single_click_open') ?? String(window.matchMedia('(hover: none)').matches)) === 'true',
   )
-  const useRemoteWallpaper = ref(localStorage.getItem('setting_use_remote_wallpaper') !== 'false')
   const showLogicalCpus = ref(localStorage.getItem('setting_show_logical_cpus') === 'true')
   // Dock position and resource monitor refresh interval are per-machine —
   // set via the "Settings" app inside each machine's dock, not a global
@@ -34,6 +52,8 @@ export const useSettingsStore = defineStore('settings', () => {
   // rather than loaded all at once.
   const dockPositions = ref<Record<string, DockPosition>>({})
   const resourceMonitorIntervals = ref<Record<string, number>>({})
+  // Per-machine too: a gradient's id.
+  const wallpaperGradients = ref<Record<string, string>>({})
 
   // The user's settings kept on the machine itself (deskconnd's settings.list/save), so
   // they follow them to any browser: string values by key, per realm. Missing until
@@ -51,6 +71,11 @@ export const useSettingsStore = defineStore('settings', () => {
       if (VALID_DOCK_POSITIONS.includes(values.dock_position as DockPosition)) {
         dockPositions.value[realm] = values.dock_position as DockPosition
         localStorage.setItem(`setting_dock_position_${realm}`, values.dock_position!)
+      }
+      if (values.wallpaper_gradient !== undefined) {
+        const id = validGradientId(values.wallpaper_gradient)
+        wallpaperGradients.value[realm] = id
+        localStorage.setItem(`setting_wallpaper_gradient_${realm}`, id)
       }
       const interval = parseInt(values.resource_monitor_interval ?? '', 10)
       if (interval > 0) {
@@ -110,14 +135,27 @@ export const useSettingsStore = defineStore('settings', () => {
     setMachineSetting(realm, 'resource_monitor_interval', String(value))
   }
 
+  function getWallpaperGradientId(realm: string): string {
+    if (!(realm in wallpaperGradients.value)) {
+      wallpaperGradients.value[realm] = validGradientId(localStorage.getItem(`setting_wallpaper_gradient_${realm}`))
+    }
+    return wallpaperGradients.value[realm]!
+  }
+
+  function getWallpaperGradientCss(realm: string): string {
+    const id = getWallpaperGradientId(realm)
+    return WALLPAPER_GRADIENTS.find((g) => g.id === id)!.css
+  }
+
+  function setWallpaperGradient(realm: string, id: string) {
+    wallpaperGradients.value[realm] = id
+    localStorage.setItem(`setting_wallpaper_gradient_${realm}`, id)
+    setMachineSetting(realm, 'wallpaper_gradient', id)
+  }
+
   function setSingleClickOpen(value: boolean) {
     singleClickOpen.value = value
     localStorage.setItem('setting_single_click_open', String(value))
-  }
-
-  function setUseRemoteWallpaper(value: boolean) {
-    useRemoteWallpaper.value = value
-    localStorage.setItem('setting_use_remote_wallpaper', String(value))
   }
 
   function setShowLogicalCpus(value: boolean) {
@@ -142,10 +180,10 @@ export const useSettingsStore = defineStore('settings', () => {
   return {
     lastRealm, setLastRealm, clearLastRealm,
     singleClickOpen, setSingleClickOpen,
-    useRemoteWallpaper, setUseRemoteWallpaper,
     showLogicalCpus, setShowLogicalCpus,
     getDockPosition, setDockPosition,
     getResourceMonitorInterval, setResourceMonitorInterval,
+    getWallpaperGradientId, getWallpaperGradientCss, setWallpaperGradient,
     fetchMachineSettings, getMachineSetting, setMachineSetting,
   }
 })
