@@ -63,7 +63,7 @@ const globalCommands = computed<Command[]>(() => {
   }
   list.push({ id: 'acct:general', group: 'Account', label: 'General settings', icon: 'bi-gear', keywords: 'preferences', run: () => accountPanelStore.open('general') })
   if (!authStore.standalone) {
-    list.push({ id: 'acct:access', group: 'Account', label: 'Access management', icon: 'bi-shield-lock', keywords: 'organizations invites members', run: () => accountPanelStore.open('access') })
+    list.push({ id: 'acct:access', group: 'Account', label: 'Access management', icon: 'bi-shield-lock', keywords: 'invites members collaborators', run: () => accountPanelStore.open('access') })
   }
   list.push({
     id: 'acct:logout',
