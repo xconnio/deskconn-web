@@ -16,4 +16,7 @@ app.use(router)
 
 installLongPressContextMenu()
 
+// Machine wallpaper images cached by older versions; safe to drop once browsers have updated.
+indexedDB.deleteDatabase('deskconn-wallpaper')
+
 router.isReady().then(() => app.mount('#app'))

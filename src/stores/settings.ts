@@ -7,8 +7,10 @@ export type DockPosition = 'bottom' | 'left' | 'right'
 
 const VALID_DOCK_POSITIONS: DockPosition[] = ['bottom', 'left', 'right']
 
+// The wallpapers a user can pick from; the first is the default, same as the mobile app's.
 // Dark enough for the desktop's white icon labels and machine badge to stay readable.
 export const WALLPAPER_GRADIENTS = [
+  { id: '', label: 'Default', css: 'linear-gradient(135deg, #0f2027 0%, #203a43 50%, #2c5364 100%)' },
   { id: 'midnight', label: 'Midnight', css: 'linear-gradient(135deg, #0f172a, #1e3a8a)' },
   { id: 'ocean', label: 'Ocean', css: 'linear-gradient(135deg, #0c4a6e, #0f766e)' },
   { id: 'forest', label: 'Forest', css: 'linear-gradient(135deg, #052e16, #15803d)' },
@@ -43,7 +45,6 @@ export const useSettingsStore = defineStore('settings', () => {
   const singleClickOpen = ref(
     (localStorage.getItem('setting_single_click_open') ?? String(window.matchMedia('(hover: none)').matches)) === 'true',
   )
-  const useRemoteWallpaper = ref(localStorage.getItem('setting_use_remote_wallpaper') !== 'false')
   const showLogicalCpus = ref(localStorage.getItem('setting_show_logical_cpus') === 'true')
   // Dock position and resource monitor refresh interval are per-machine —
   // set via the "Settings" app inside each machine's dock, not a global
@@ -51,7 +52,7 @@ export const useSettingsStore = defineStore('settings', () => {
   // rather than loaded all at once.
   const dockPositions = ref<Record<string, DockPosition>>({})
   const resourceMonitorIntervals = ref<Record<string, number>>({})
-  // Per-machine too: a gradient's id, or '' for the machine's own wallpaper.
+  // Per-machine too: a gradient's id.
   const wallpaperGradients = ref<Record<string, string>>({})
 
   // The user's settings kept on the machine itself (deskconnd's settings.list/save), so
@@ -141,9 +142,9 @@ export const useSettingsStore = defineStore('settings', () => {
     return wallpaperGradients.value[realm]!
   }
 
-  function getWallpaperGradientCss(realm: string): string | undefined {
+  function getWallpaperGradientCss(realm: string): string {
     const id = getWallpaperGradientId(realm)
-    return WALLPAPER_GRADIENTS.find((g) => g.id === id)?.css
+    return WALLPAPER_GRADIENTS.find((g) => g.id === id)!.css
   }
 
   function setWallpaperGradient(realm: string, id: string) {
@@ -155,11 +156,6 @@ export const useSettingsStore = defineStore('settings', () => {
   function setSingleClickOpen(value: boolean) {
     singleClickOpen.value = value
     localStorage.setItem('setting_single_click_open', String(value))
-  }
-
-  function setUseRemoteWallpaper(value: boolean) {
-    useRemoteWallpaper.value = value
-    localStorage.setItem('setting_use_remote_wallpaper', String(value))
   }
 
   function setShowLogicalCpus(value: boolean) {
@@ -184,7 +180,6 @@ export const useSettingsStore = defineStore('settings', () => {
   return {
     lastRealm, setLastRealm, clearLastRealm,
     singleClickOpen, setSingleClickOpen,
-    useRemoteWallpaper, setUseRemoteWallpaper,
     showLogicalCpus, setShowLogicalCpus,
     getDockPosition, setDockPosition,
     getResourceMonitorInterval, setResourceMonitorInterval,

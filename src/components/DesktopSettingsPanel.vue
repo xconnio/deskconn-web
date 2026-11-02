@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useSettingsStore, WALLPAPER_GRADIENTS } from '@/stores/settings'
-import { loadCachedWallpaper } from '@/composables/useWallpaperCache'
 import type { DockPosition } from '@/stores/settings'
 import { useCapabilitiesStore, type Capability } from '@/stores/capabilities'
 import { useMachinesStore } from '@/stores/machines'
@@ -87,25 +86,8 @@ const activeSection = computed(() =>
   sections.value.find((s) => s.id === selectedSection.value) ?? sections.value[0]!,
 )
 
-// What the "machine wallpaper" swatch selects. Same off-switch as the desktop:
-// with remote wallpapers turned off, or none cached, that's the default gradient.
-const machineWallpaperUrl = ref<string | null>(null)
-let unmounted = false
-
-onMounted(async () => {
+onMounted(() => {
   void capabilitiesStore.fetch(props.realm)
-  if (!settingsStore.useRemoteWallpaper) return
-  const url = (await loadCachedWallpaper(props.realm))?.url ?? null
-  if (unmounted) {
-    if (url) URL.revokeObjectURL(url)
-    return
-  }
-  machineWallpaperUrl.value = url
-})
-
-onUnmounted(() => {
-  unmounted = true
-  if (machineWallpaperUrl.value) URL.revokeObjectURL(machineWallpaperUrl.value)
 })
 </script>
 
@@ -146,17 +128,6 @@ onUnmounted(() => {
           <div class="desktop-settings-card desktop-settings-wallpaper">
             <p class="mb-2 fw-semibold">Wallpaper</p>
             <div class="wallpaper-swatches">
-              <button
-                type="button"
-                class="wallpaper-swatch wallpaper-swatch-machine"
-                :class="{ active: !settingsStore.getWallpaperGradientId(props.realm) }"
-                :style="machineWallpaperUrl ? { backgroundImage: `url(${machineWallpaperUrl})` } : undefined"
-                title="Machine wallpaper"
-                aria-label="Machine wallpaper"
-                :aria-pressed="!settingsStore.getWallpaperGradientId(props.realm)"
-                @click="settingsStore.setWallpaperGradient(props.realm, '')"
-              >
-              </button>
               <button
                 v-for="gradient in WALLPAPER_GRADIENTS"
                 :key="gradient.id"
@@ -363,12 +334,6 @@ onUnmounted(() => {
   border-radius: 8px;
   background-size: cover;
   cursor: pointer;
-}
-
-/* Same default wallpaper as .launcher-body in DesktopSessionHost. */
-.wallpaper-swatch-machine {
-  background-image: linear-gradient(135deg, #0f2027 0%, #203a43 50%, #2c5364 100%);
-  background-position: center;
 }
 
 .wallpaper-swatch.active {
