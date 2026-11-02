@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, type ComponentPublicInstance } from 'vue'
 import { useMachinesStore } from '@/stores/machines'
+import { useSettingsStore } from '@/stores/settings'
 import { useDesktopSessionsStore } from '@/stores/desktopSessions'
 import { useMachinesOverviewStore } from '@/stores/machinesOverview'
 import { openLauncher } from '@/router/navigation'
@@ -11,6 +12,7 @@ import OverviewGrid from '@/components/OverviewGrid.vue'
 interface DesktopCard { id: string; realm: string; name: string; icon: string }
 
 const machinesStore = useMachinesStore()
+const settingsStore = useSettingsStore()
 const desktopSessionsStore = useDesktopSessionsStore()
 const machinesOverviewStore = useMachinesOverviewStore()
 
@@ -101,7 +103,12 @@ function closeOverview() {
     @back="closeOverview"
   >
     <template #preview="{ entry }">
-      <img v-if="cardImages[entry.realm]" :src="cardImages[entry.realm]!" alt="" class="machines-card-image" />
+      <div
+        v-if="settingsStore.getWallpaperGradientCss(entry.realm)"
+        class="machines-card-image"
+        :style="{ backgroundImage: settingsStore.getWallpaperGradientCss(entry.realm) }"
+      ></div>
+      <img v-else-if="cardImages[entry.realm]" :src="cardImages[entry.realm]!" alt="" class="machines-card-image" />
       <div v-else class="machines-card-placeholder">
         <i class="bi bi-pc-display"></i>
       </div>

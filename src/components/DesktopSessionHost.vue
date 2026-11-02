@@ -138,8 +138,10 @@ const previewScale = computed(() => {
 })
 
 const launcherBodyStyle = computed(() => {
-  const style: Record<string, string> = wallpaperUrl.value
-    ? { backgroundImage: `url(${wallpaperUrl.value})`, backgroundSize: 'cover', backgroundPosition: 'center' }
+  const gradient = settingsStore.getWallpaperGradientCss(props.realm)
+  const image = gradient ?? (wallpaperUrl.value ? `url(${wallpaperUrl.value})` : null)
+  const style: Record<string, string> = image
+    ? { backgroundImage: image, backgroundSize: 'cover', backgroundPosition: 'center' }
     : {}
   const scale = previewScale.value
   if (!scale) return style
@@ -989,7 +991,7 @@ onUnmounted(() => {
     <div
       ref="launcherBodyRef"
       class="launcher-body"
-      :class="{ 'has-wallpaper': !!wallpaperUrl, 'is-connecting': isConnecting, 'is-disconnected': isDisconnected }"
+      :class="{ 'has-wallpaper': !!wallpaperUrl || !!settingsStore.getWallpaperGradientCss(realm), 'is-connecting': isConnecting, 'is-disconnected': isDisconnected }"
       :style="launcherBodyStyle"
       @touchstart.passive="onSwipeStart"
       @touchend.passive="onSwipeEnd"

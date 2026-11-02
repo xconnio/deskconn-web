@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
-import { useSettingsStore } from '@/stores/settings'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useSettingsStore, WALLPAPER_GRADIENTS } from '@/stores/settings'
+import { loadCachedWallpaper } from '@/composables/useWallpaperCache'
 import type { DockPosition } from '@/stores/settings'
 import { useCapabilitiesStore, type Capability } from '@/stores/capabilities'
 import { useMachinesStore } from '@/stores/machines'
@@ -86,8 +87,25 @@ const activeSection = computed(() =>
   sections.value.find((s) => s.id === selectedSection.value) ?? sections.value[0]!,
 )
 
-onMounted(() => {
+// What the "machine wallpaper" swatch selects. Same off-switch as the desktop:
+// with remote wallpapers turned off, or none cached, that's the default gradient.
+const machineWallpaperUrl = ref<string | null>(null)
+let unmounted = false
+
+onMounted(async () => {
   void capabilitiesStore.fetch(props.realm)
+  if (!settingsStore.useRemoteWallpaper) return
+  const url = (await loadCachedWallpaper(props.realm))?.url ?? null
+  if (unmounted) {
+    if (url) URL.revokeObjectURL(url)
+    return
+  }
+  machineWallpaperUrl.value = url
+})
+
+onUnmounted(() => {
+  unmounted = true
+  if (machineWallpaperUrl.value) URL.revokeObjectURL(machineWallpaperUrl.value)
 })
 </script>
 
@@ -111,18 +129,49 @@ onMounted(() => {
       <div class="desktop-settings-inner">
         <h4 class="desktop-settings-title">{{ activeSection.label }}</h4>
 
-        <div v-if="activeSection.id === 'appearance'" class="desktop-settings-card desktop-settings-row">
-          <p class="mb-0 fw-semibold">Task bar position</p>
-          <select
-            class="form-select form-select-sm desktop-settings-select"
-            :value="settingsStore.getDockPosition(props.realm)"
-            @change="settingsStore.setDockPosition(props.realm, ($event.target as HTMLSelectElement).value as DockPosition)"
-          >
-            <option value="bottom">Bottom</option>
-            <option value="left">Left</option>
-            <option value="right">Right</option>
-          </select>
-        </div>
+        <template v-if="activeSection.id === 'appearance'">
+          <div class="desktop-settings-card desktop-settings-row">
+            <p class="mb-0 fw-semibold">Task bar position</p>
+            <select
+              class="form-select form-select-sm desktop-settings-select"
+              :value="settingsStore.getDockPosition(props.realm)"
+              @change="settingsStore.setDockPosition(props.realm, ($event.target as HTMLSelectElement).value as DockPosition)"
+            >
+              <option value="bottom">Bottom</option>
+              <option value="left">Left</option>
+              <option value="right">Right</option>
+            </select>
+          </div>
+
+          <div class="desktop-settings-card desktop-settings-wallpaper">
+            <p class="mb-2 fw-semibold">Wallpaper</p>
+            <div class="wallpaper-swatches">
+              <button
+                type="button"
+                class="wallpaper-swatch wallpaper-swatch-machine"
+                :class="{ active: !settingsStore.getWallpaperGradientId(props.realm) }"
+                :style="machineWallpaperUrl ? { backgroundImage: `url(${machineWallpaperUrl})` } : undefined"
+                title="Machine wallpaper"
+                aria-label="Machine wallpaper"
+                :aria-pressed="!settingsStore.getWallpaperGradientId(props.realm)"
+                @click="settingsStore.setWallpaperGradient(props.realm, '')"
+              >
+              </button>
+              <button
+                v-for="gradient in WALLPAPER_GRADIENTS"
+                :key="gradient.id"
+                type="button"
+                class="wallpaper-swatch"
+                :class="{ active: settingsStore.getWallpaperGradientId(props.realm) === gradient.id }"
+                :style="{ backgroundImage: gradient.css }"
+                :title="gradient.label"
+                :aria-label="gradient.label"
+                :aria-pressed="settingsStore.getWallpaperGradientId(props.realm) === gradient.id"
+                @click="settingsStore.setWallpaperGradient(props.realm, gradient.id)"
+              ></button>
+            </div>
+          </div>
+        </template>
 
         <template v-else>
           <p v-if="!canManageApps" class="desktop-settings-note">
@@ -295,6 +344,36 @@ onMounted(() => {
   width: 2.5em;
   height: 1.3em;
   cursor: pointer;
+}
+
+.desktop-settings-wallpaper {
+  margin-top: 0.75rem;
+  padding: 0.9rem 1.1rem;
+}
+
+.wallpaper-swatches {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  gap: 0.6rem;
+}
+
+.wallpaper-swatch {
+  aspect-ratio: 16 / 10;
+  border: 1px solid #e2e4e8;
+  border-radius: 8px;
+  background-size: cover;
+  cursor: pointer;
+}
+
+/* Same default wallpaper as .launcher-body in DesktopSessionHost. */
+.wallpaper-swatch-machine {
+  background-image: linear-gradient(135deg, #0f2027 0%, #203a43 50%, #2c5364 100%);
+  background-position: center;
+}
+
+.wallpaper-swatch.active {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
 }
 
 .desktop-settings-select {
