@@ -3,14 +3,14 @@ import { ref, computed, watch, onUnmounted } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import { useMachinesStore } from '../stores/machines'
 import { authService } from '../services/authService'
-import type { DesktopUserAccess, DesktopOrganizationAccess, Organization, DesktopInvite } from '../types'
+import type { DesktopUserAccess, DesktopInvite } from '../types'
 import { ApplicationError } from '@/services/xconn'
 
 // Only ever rendered as a drill-down inside AccountPanel's popup Machines
-// list — takes `machineId` as a prop and emits `back`/`open-org` instead of
+// list — takes `machineId` as a prop and emits `back` instead of
 // routing to a separate page.
 const props = defineProps<{ machineId: string }>()
-const emit = defineEmits<{ back: []; 'open-org': [id: string] }>()
+const emit = defineEmits<{ back: [] }>()
 
 const authStore = useAuthStore()
 const machinesStore = useMachinesStore()
@@ -31,11 +31,6 @@ const isLoadingUsers = ref(false)
 const updatingUserId = ref<string | null>(null)
 const revokingUserId = ref<string | null>(null)
 
-// --- Teams (org accesses) ---
-const orgAccesses = ref<DesktopOrganizationAccess[]>([])
-const isLoadingOrgs = ref(false)
-const revokingOrgId = ref<string | null>(null)
-
 // --- Invite user modal ---
 const showInviteModal = ref(false)
 const inviteEmail = ref('')
@@ -49,29 +44,9 @@ const pendingInvites = ref<DesktopInvite[]>([])
 const isLoadingInvites = ref(false)
 const cancelingInviteId = ref<string | null>(null)
 
-// --- Add org modal ---
-const showOrgModal = ref(false)
-const organizations = ref<Organization[]>([])
-const selectedOrgId = ref('')
-const isAddingOrg = ref(false)
-const addOrgError = ref('')
-const isLoadingOrgList = ref(false)
-
-// Collaborators, teams and sent invites each get their own tab instead of
-// stacking three lists in one scroll. Sent invites only matter to admins.
-type MachineTab = 'people' | 'teams' | 'invites'
-const activeTab = ref<MachineTab>('people')
-const tabs = computed(() => [
-  { id: 'people' as const, label: 'Collaborators', icon: 'bi-people', count: userAccesses.value.length },
-  { id: 'teams' as const, label: 'Teams', icon: 'bi-building', count: orgAccesses.value.length },
-  ...(isAdminOrOwner.value
-    ? [{ id: 'invites' as const, label: 'Sent invites', icon: 'bi-send', count: pendingInvites.value.length }]
-    : []),
-])
-
 const fetchAll = async () => {
   if (!authStore.session) return
-  await Promise.all([fetchMyAccess(), fetchUserAccesses(), fetchOrgAccesses()])
+  await Promise.all([fetchMyAccess(), fetchUserAccesses()])
 }
 
 const fetchMyAccess = async () => {
@@ -109,19 +84,6 @@ const fetchUserAccesses = async () => {
     console.error('Failed to fetch user accesses', err)
   } finally {
     isLoadingUsers.value = false
-  }
-}
-
-const fetchOrgAccesses = async () => {
-  if (!authStore.session) return
-  isLoadingOrgs.value = true
-  try {
-    const result = await authService.listDesktopOrgAccesses(authStore.session, machineId)
-    orgAccesses.value = result.args as DesktopOrganizationAccess[]
-  } catch (err) {
-    console.error('Failed to fetch org accesses', err)
-  } finally {
-    isLoadingOrgs.value = false
   }
 }
 
@@ -166,19 +128,6 @@ const handleRevokeUser = async (access: DesktopUserAccess) => {
   }
 }
 
-const handleRevokeOrg = async (access: DesktopOrganizationAccess) => {
-  if (!authStore.session) return
-  revokingOrgId.value = access.id
-  try {
-    await authService.revokeOrgAccess(authStore.session, access.id)
-    orgAccesses.value = orgAccesses.value.filter((a) => a.id !== access.id)
-  } catch (err) {
-    console.error('Failed to revoke org access', err)
-  } finally {
-    revokingOrgId.value = null
-  }
-}
-
 const parseErrorArgs = (args: unknown): string => {
   const str = String(args)
   try {
@@ -208,7 +157,6 @@ const handleInviteUser = async () => {
     await authService.inviteUserToDesktop(authStore.session, machineId, inviteEmail.value, inviteRole.value)
     closeInviteModal()
     await fetchPendingInvites()
-    activeTab.value = 'invites' // show where the new invite landed
     inviteSuccessToast.value = true
     setTimeout(() => { inviteSuccessToast.value = false }, 3000)
   } catch (err) {
@@ -228,15 +176,8 @@ watch(showInviteModal, (open) => {
   else document.removeEventListener('keydown', handleInviteEsc)
 })
 
-const handleOrgEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') closeOrgModal() }
-watch(showOrgModal, (open) => {
-  if (open) document.addEventListener('keydown', handleOrgEsc)
-  else document.removeEventListener('keydown', handleOrgEsc)
-})
-
 onUnmounted(() => {
   document.removeEventListener('keydown', handleInviteEsc)
-  document.removeEventListener('keydown', handleOrgEsc)
 })
 
 // --- Cancel invite ---
@@ -250,42 +191,6 @@ const handleCancelInvite = async (inviteId: string) => {
     await fetchPendingInvites()
   } finally {
     cancelingInviteId.value = null
-  }
-}
-
-// --- Add org ---
-const openOrgModal = async () => {
-  selectedOrgId.value = ''
-  addOrgError.value = ''
-  showOrgModal.value = true
-  if (!authStore.session) return
-  isLoadingOrgList.value = true
-  try {
-    const result = await authService.listOrganizations(authStore.session)
-    organizations.value = result.args as Organization[]
-  } catch (err) {
-    console.error('Failed to fetch organizations', err)
-  } finally {
-    isLoadingOrgList.value = false
-  }
-}
-
-const closeOrgModal = () => {
-  showOrgModal.value = false
-}
-
-const handleAddOrg = async () => {
-  if (!authStore.session || !selectedOrgId.value) return
-  isAddingOrg.value = true
-  addOrgError.value = ''
-  try {
-    await authService.grantOrgDesktopAccess(authStore.session, machineId, selectedOrgId.value)
-    await fetchOrgAccesses()
-    closeOrgModal()
-  } catch (err) {
-    addOrgError.value = err instanceof Error ? err.message : 'Failed to grant access'
-  } finally {
-    isAddingOrg.value = false
   }
 }
 
@@ -326,29 +231,17 @@ const userSubtitle = (access: DesktopUserAccess) => {
           <span class="machine-hero-icon">🖥️</span>
           <div>
             <h2 class="mb-0 fw-bold fs-5">{{ machine?.name ?? machineId }}</h2>
-            <p class="text-muted mb-0 access-subtext">Manage collaborators and team access</p>
+            <p class="text-muted mb-0 access-subtext">Manage collaborators</p>
           </div>
         </div>
 
-        <ul class="nav nav-underline access-tabs mb-3" role="tablist">
-          <li v-for="t in tabs" :key="t.id" class="nav-item" role="presentation">
-            <button
-              class="nav-link d-flex align-items-center gap-2"
-              :class="{ active: activeTab === t.id }"
-              role="tab"
-              :aria-selected="activeTab === t.id"
-              @click="activeTab = t.id"
-            >
-              <i class="bi" :class="t.icon"></i> {{ t.label }}
-              <span v-if="t.count" class="badge rounded-pill bg-secondary">{{ t.count }}</span>
-            </button>
-          </li>
-        </ul>
-
         <!-- ── Collaborators (People) ── -->
-        <section v-if="activeTab === 'people'">
+        <section class="mb-4">
           <div class="d-flex justify-content-between align-items-center gap-3 mb-3">
-            <p class="text-muted mb-0 access-subtext">People who have direct access to this machine.</p>
+            <div class="min-w-0">
+              <h3 class="fs-6 fw-bold mb-1">Collaborators</h3>
+              <p class="text-muted mb-0 access-subtext">People who have direct access to this machine.</p>
+            </div>
             <button
               v-if="isAdminOrOwner"
               class="btn btn-sm btn-outline-primary rounded-pill btn-compact flex-shrink-0 text-nowrap"
@@ -423,7 +316,8 @@ const userSubtitle = (access: DesktopUserAccess) => {
         </section>
 
         <!-- ── Pending Invitations ── -->
-        <section v-else-if="activeTab === 'invites'">
+        <section v-if="isAdminOrOwner">
+          <h3 class="fs-6 fw-bold mb-1">Sent invites</h3>
           <p class="text-muted mb-3 access-subtext">Invitations you've sent that haven't been answered yet.</p>
 
           <div v-if="isLoadingInvites" class="text-center py-4">
@@ -462,69 +356,6 @@ const userSubtitle = (access: DesktopUserAccess) => {
                       <span v-if="cancelingInviteId === invite.id" class="spinner-border spinner-border-sm"></span>
                       <i v-else class="bi bi-x-lg"></i>
                     </button>
-                  </div>
-                </div>
-              </li>
-            </ul>
-          </div>
-        </section>
-
-        <!-- ── Teams (Organizations) ── -->
-        <section v-else>
-          <div class="d-flex justify-content-between align-items-center gap-3 mb-3">
-            <p class="text-muted mb-0 access-subtext">Organizations with access. All of their members can use this machine.</p>
-            <button
-              v-if="isAdminOrOwner"
-              class="btn btn-sm btn-outline-primary rounded-pill btn-compact flex-shrink-0 text-nowrap"
-              @click="openOrgModal"
-            >
-              <i class="bi bi-building-add me-1"></i> Add a team
-            </button>
-          </div>
-
-          <div class="card border-0 shadow-sm">
-            <div v-if="isLoadingOrgs" class="text-center py-4">
-              <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
-            </div>
-
-            <div v-else-if="orgAccesses.length === 0" class="text-center text-muted py-4 small">
-              No teams have access yet.
-            </div>
-
-            <ul v-else class="list-group list-group-flush rounded-3">
-              <li
-                v-for="access in orgAccesses"
-                :key="access.id"
-                class="list-group-item border-0 collaborator-row org-row px-3 py-2"
-                @click="emit('open-org', access.organization_id)"
-              >
-                <div class="d-flex align-items-center gap-3">
-                  <div class="avatar-circle avatar-circle-sm avatar-org">
-                    <i class="bi bi-building text-primary"></i>
-                  </div>
-                  <div class="flex-grow-1 min-w-0">
-                    <div class="fw-semibold text-truncate">
-                      {{ access.organization?.name ?? access.organization_id }}
-                    </div>
-                    <div class="text-muted small">
-                      <span class="badge bg-light text-dark border text-capitalize me-1">{{ access.role }}</span>
-                      · Click to manage members
-                    </div>
-                  </div>
-                  <div class="d-flex align-items-center gap-2 flex-shrink-0" @click.stop>
-                    <template v-if="isAdminOrOwner">
-                      <div v-if="revokingOrgId === access.id" class="spinner-border spinner-border-sm text-primary"></div>
-                      <button
-                        v-else
-                        class="btn btn-sm btn-outline-danger rounded-pill px-2"
-                        :disabled="revokingOrgId === access.id"
-                        title="Remove team"
-                        @click.stop="handleRevokeOrg(access)"
-                      >
-                        <i class="bi bi-building-dash"></i>
-                      </button>
-                    </template>
-                    <i class="bi bi-chevron-right text-muted"></i>
                   </div>
                 </div>
               </li>
@@ -607,73 +438,6 @@ const userSubtitle = (access: DesktopUserAccess) => {
       </div>
     </div>
   </div>
-
-  <!-- ── Add team modal ── -->
-  <div v-if="showOrgModal" class="modal-overlay" @click.self="closeOrgModal">
-    <div class="modal-dialog modal-dialog-centered">
-      <div class="modal-content card shadow-lg border-0 glass-modal fade-in-up">
-        <div class="modal-header border-0 p-4 pb-0">
-          <h4 class="modal-title fw-bold">Add a team</h4>
-          <button type="button" class="btn-close shadow-none" @click="closeOrgModal"></button>
-        </div>
-
-        <div class="modal-body p-4">
-          <p class="text-muted small mb-3">
-            All members of the selected organization will get
-            <strong>Member</strong> access. You can change the role afterwards.
-          </p>
-
-          <div class="mb-3">
-            <label class="form-label fw-semibold small">Organization</label>
-            <div v-if="isLoadingOrgList" class="text-center py-2">
-              <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
-            </div>
-            <select
-              v-else
-              v-model="selectedOrgId"
-              class="form-select theme-input"
-            >
-              <option value="" disabled>Select an organization…</option>
-              <option
-                v-for="org in organizations"
-                :key="org.id"
-                :value="org.id"
-                :disabled="orgAccesses.some((a) => a.organization_id === org.id)"
-              >
-                {{ org.name }}
-                <template v-if="orgAccesses.some((a) => a.organization_id === org.id)">
-                  (already has access)
-                </template>
-              </option>
-            </select>
-          </div>
-
-          <div v-if="addOrgError" class="text-danger small d-flex align-items-center">
-            <i class="bi bi-exclamation-circle me-1"></i> {{ addOrgError }}
-          </div>
-        </div>
-
-        <div class="modal-footer border-0 p-4 pt-0">
-          <button
-            type="button"
-            class="btn btn-link text-muted text-decoration-none fw-semibold me-auto"
-            @click="closeOrgModal"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            class="btn btn-theme-primary rounded-pill px-5 py-2 fw-bold"
-            :disabled="!selectedOrgId || isAddingOrg"
-            @click="handleAddOrg"
-          >
-            <span v-if="isAddingOrg" class="spinner-border spinner-border-sm me-2"></span>
-            {{ isAddingOrg ? 'Granting...' : 'Grant access' }}
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>
 </template>
 
 <style scoped>
@@ -702,10 +466,6 @@ const userSubtitle = (access: DesktopUserAccess) => {
   background: #f8fafc;
 }
 
-.org-row {
-  cursor: pointer;
-}
-
 .avatar-circle {
   width: 38px;
   height: 38px;
@@ -726,11 +486,6 @@ const userSubtitle = (access: DesktopUserAccess) => {
 .avatar-member {
   background: #e2e8f0;
   color: #475569;
-}
-
-.avatar-org {
-  background: #eff6ff;
-  font-size: 1rem;
 }
 
 .role-select {

@@ -31,7 +31,7 @@ const activeSection = computed(() =>
 
 const activeSectionLabel = computed(() => sections.value.find((s) => s.id === activeSection.value)?.label)
 
-// Access Management embeds real navigation (into a specific machine/org) —
+// Access Management embeds real navigation (into a specific machine) —
 // once that changes the underlying route, the popup would otherwise just
 // keep covering it up, so close automatically instead.
 watch(

@@ -1,35 +1,21 @@
 <script setup lang="ts">
-import { ref, watch, onUnmounted, computed } from 'vue'
+import { ref, watch, computed } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import { useMachinesStore } from '../stores/machines'
 import { authService } from '../services/authService'
-import type { Organization, DesktopInvite, OrganizationInvite } from '../types'
+import type { DesktopInvite } from '../types'
 import MachineAccessView from './MachineAccessView.vue'
-import OrganizationDetailView from './OrganizationDetailView.vue'
 
 const authStore = useAuthStore()
 const machinesStore = useMachinesStore()
 
 // Only ever rendered inside AccountPanel's popup — drills into a machine's
-// or organization's detail page in place instead of navigating to a
+// detail page in place instead of navigating to a
 // separate route (which would just close the popup).
 const selectedMachineId = ref<string | null>(null)
 function openMachineAccess(id: string) {
   selectedMachineId.value = id
 }
-
-const selectedOrgId = ref<string | null>(null)
-function openOrgDetail(id: string) {
-  selectedOrgId.value = id
-}
-
-// --- Organizations ---
-const organizations = ref<Organization[]>([])
-const isLoadingOrgs = ref(false)
-const showCreateOrgModal = ref(false)
-const newOrgName = ref('')
-const isCreatingOrg = ref(false)
-const createOrgError = ref('')
 
 // --- Desktop Invitations ---
 const invitations = ref<DesktopInvite[]>([])
@@ -37,41 +23,21 @@ const isLoadingInvitations = ref(false)
 const respondingId = ref<string | null>(null)
 const respondError = ref('')
 
-// --- Org Invitations ---
-const orgInvitations = ref<OrganizationInvite[]>([])
-const isLoadingOrgInvitations = ref(false)
-const respondingOrgId = ref<string | null>(null)
-const respondOrgError = ref('')
-
 // Each area gets its own tab rather than stacking every list in one scroll.
-type AccessTab = 'machines' | 'organizations' | 'invitations'
+type AccessTab = 'machines' | 'invitations'
 const tabs: { id: AccessTab; label: string; icon: string }[] = [
   { id: 'machines', label: 'Machines', icon: 'bi-pc-display' },
-  { id: 'organizations', label: 'Organizations', icon: 'bi-building' },
   { id: 'invitations', label: 'Invitations', icon: 'bi-envelope' },
 ]
 const activeTab = ref<AccessTab>('machines')
 
 // --- Computed ---
-const pendingInviteCount = computed(() => invitations.value.length + orgInvitations.value.length)
+const pendingInviteCount = computed(() => invitations.value.length)
 const accessibleMachines = computed(() =>
   machinesStore.desktops.filter((d) => d.role === 'owner' || d.role === 'admin'),
 )
 
 // --- Fetch ---
-const fetchOrganizations = async () => {
-  if (!authStore.session) return
-  isLoadingOrgs.value = true
-  try {
-    const result = await authService.listOrganizations(authStore.session)
-    organizations.value = result.args as Organization[]
-  } catch (err) {
-    console.error('Failed to fetch organizations', err)
-  } finally {
-    isLoadingOrgs.value = false
-  }
-}
-
 const fetchInvitations = async () => {
   if (!authStore.session) return
   isLoadingInvitations.value = true
@@ -86,75 +52,15 @@ const fetchInvitations = async () => {
   }
 }
 
-const fetchOrgInvitations = async () => {
-  if (!authStore.session) return
-  isLoadingOrgInvitations.value = true
-  respondOrgError.value = ''
-  try {
-    const result = await authService.listOrgInvitesInbox(authStore.session)
-    orgInvitations.value = result.args as OrganizationInvite[]
-  } catch (err) {
-    console.error('Failed to fetch org invitations', err)
-  } finally {
-    isLoadingOrgInvitations.value = false
-  }
-}
-
 watch(
   () => authStore.session,
   (session) => {
     if (session) {
-      fetchOrganizations()
       fetchInvitations()
-      fetchOrgInvitations()
     }
   },
   { immediate: true },
 )
-
-// --- Create org ---
-const handleCreateOrgEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') closeCreateOrgModal() }
-watch(showCreateOrgModal, (open) => {
-  if (open) document.addEventListener('keydown', handleCreateOrgEsc)
-  else document.removeEventListener('keydown', handleCreateOrgEsc)
-})
-onUnmounted(() => document.removeEventListener('keydown', handleCreateOrgEsc))
-
-const closeCreateOrgModal = () => {
-  showCreateOrgModal.value = false
-  newOrgName.value = ''
-  createOrgError.value = ''
-}
-
-const handleCreateOrg = async () => {
-  if (!authStore.session || !newOrgName.value.trim()) return
-  isCreatingOrg.value = true
-  createOrgError.value = ''
-  try {
-    await authService.createOrganization(authStore.session, newOrgName.value.trim())
-    await fetchOrganizations()
-    closeCreateOrgModal()
-  } catch (err) {
-    createOrgError.value = err instanceof Error ? err.message : 'Failed to create organization'
-  } finally {
-    isCreatingOrg.value = false
-  }
-}
-
-// --- Respond to org invite ---
-const handleRespondOrg = async (invite: OrganizationInvite, status: 'accepted' | 'rejected') => {
-  if (!authStore.session) return
-  respondingOrgId.value = invite.id
-  respondOrgError.value = ''
-  try {
-    await authService.respondToOrgInvite(authStore.session, invite.id, status)
-    orgInvitations.value = orgInvitations.value.filter((i) => i.id !== invite.id)
-  } catch (err) {
-    respondOrgError.value = err instanceof Error ? err.message : 'Failed to respond to invitation'
-  } finally {
-    respondingOrgId.value = null
-  }
-}
 
 // --- Respond to desktop invite ---
 const handleRespond = async (invite: DesktopInvite, status: 'accepted' | 'rejected') => {
@@ -180,7 +86,7 @@ const handleRespond = async (invite: DesktopInvite, status: 'accepted' | 'reject
     <div class="row justify-content-center">
       <div class="col-lg-10">
 
-        <template v-if="!selectedMachineId && !selectedOrgId">
+        <template v-if="!selectedMachineId">
 
         <ul class="nav nav-underline access-tabs mb-3" role="tablist">
           <li v-for="t in tabs" :key="t.id" class="nav-item" role="presentation">
@@ -236,58 +142,15 @@ const handleRespond = async (invite: DesktopInvite, status: 'accepted' | 'reject
           </div>
         </div>
 
-        <!-- ── Organizations ── -->
-        <div v-else-if="activeTab === 'organizations'">
-          <div class="d-flex justify-content-between align-items-center mb-3">
-            <p class="text-muted small mb-0">Group people into organizations and share machines with them.</p>
-            <button
-              class="btn btn-primary btn-sm rounded-pill btn-compact shadow-none no-underline-hover flex-shrink-0 text-nowrap"
-              @click="showCreateOrgModal = true"
-            >
-              <i class="bi bi-plus-lg me-1"></i> Add New
-            </button>
-          </div>
-
-          <div v-if="isLoadingOrgs" class="text-center py-3">
-            <div class="spinner-border spinner-border-sm text-primary" role="status">
-              <span class="visually-hidden">Loading...</span>
-            </div>
-          </div>
-
-          <div v-else class="card border-0 shadow-sm">
-            <ul class="list-group list-group-flush rounded-3">
-              <li
-                v-for="org in organizations"
-                :key="org.id"
-                class="list-group-item border-0 px-3 py-2 access-row"
-                @click="openOrgDetail(org.id)"
-              >
-                <div class="d-flex align-items-center gap-3">
-                  <div class="avatar-circle avatar-org">
-                    <i class="bi bi-building"></i>
-                  </div>
-                  <div class="flex-grow-1 min-w-0">
-                    <div class="fw-semibold text-truncate">{{ org.name }}</div>
-                  </div>
-                  <i class="bi bi-chevron-right text-muted flex-shrink-0"></i>
-                </div>
-              </li>
-              <li v-if="organizations.length === 0" class="list-group-item border-0 text-center text-muted py-4 small">
-                No organizations found. Create your first one!
-              </li>
-            </ul>
-          </div>
-        </div>
-
         <!-- ── Invitations ── -->
         <div v-else>
-          <p class="text-muted small mb-3">Invitations other people have sent you to join their machines and organizations.</p>
+          <p class="text-muted small mb-3">Invitations other people have sent you to join their machines.</p>
 
-          <div v-if="respondError || respondOrgError" class="alert alert-danger d-flex align-items-center mb-3 py-2" role="alert">
-            <i class="bi bi-exclamation-triangle-fill me-2"></i>{{ respondError || respondOrgError }}
+          <div v-if="respondError" class="alert alert-danger d-flex align-items-center mb-3 py-2" role="alert">
+            <i class="bi bi-exclamation-triangle-fill me-2"></i>{{ respondError }}
           </div>
 
-          <div v-if="isLoadingInvitations || isLoadingOrgInvitations" class="text-center py-3">
+          <div v-if="isLoadingInvitations" class="text-center py-3">
             <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
           </div>
 
@@ -330,39 +193,6 @@ const handleRespond = async (invite: DesktopInvite, status: 'accepted' | 'reject
                   </div>
                 </div>
               </div>
-
-              <div v-for="invite in orgInvitations" :key="invite.id" class="list-group-item border-0 px-3 py-2">
-                <div class="d-flex align-items-center justify-content-between gap-3 flex-wrap">
-                  <div class="d-flex align-items-center gap-3 min-w-0">
-                    <div class="invite-icon invite-icon-sm">
-                      <i class="bi bi-building fs-5 text-primary"></i>
-                    </div>
-                    <div class="min-w-0">
-                      <div class="fw-semibold text-dark text-truncate">{{ invite.organization?.name ?? 'An organization' }}</div>
-                      <div class="text-muted small">
-                        Organization · <span class="text-capitalize">{{ invite.role }}</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div class="d-flex gap-2 flex-shrink-0">
-                    <button
-                      class="btn btn-sm btn-outline-success rounded-pill px-3"
-                      :disabled="respondingOrgId === invite.id"
-                      @click="handleRespondOrg(invite, 'accepted')"
-                    >
-                      <span v-if="respondingOrgId === invite.id" class="spinner-border spinner-border-sm me-1"></span>
-                      Accept
-                    </button>
-                    <button
-                      class="btn btn-sm btn-outline-danger rounded-pill px-3"
-                      :disabled="respondingOrgId === invite.id"
-                      @click="handleRespondOrg(invite, 'rejected')"
-                    >
-                      Decline
-                    </button>
-                  </div>
-                </div>
-              </div>
             </div>
           </div>
         </div>
@@ -374,62 +204,8 @@ const handleRespond = async (invite: DesktopInvite, status: 'accepted' | 'reject
           :key="selectedMachineId"
           :machine-id="selectedMachineId"
           @back="selectedMachineId = null"
-          @open-org="(id) => { selectedMachineId = null; selectedOrgId = id }"
         />
 
-        <OrganizationDetailView
-          v-else-if="selectedOrgId"
-          :key="selectedOrgId"
-          :org-id="selectedOrgId"
-          @back="selectedOrgId = null"
-        />
-
-      </div>
-    </div>
-  </div>
-
-  <!-- Create organization modal -->
-  <div v-if="showCreateOrgModal" class="modal-overlay" @click.self="closeCreateOrgModal">
-    <div class="modal-dialog modal-dialog-centered">
-      <div class="modal-content card shadow-lg border-0 glass-modal fade-in-up">
-        <div class="modal-header border-0 p-4 pb-0">
-          <h4 class="modal-title fw-bold">Add New Organization</h4>
-          <button type="button" class="btn-close shadow-none" @click="closeCreateOrgModal"></button>
-        </div>
-        <div class="modal-body p-4 py-5">
-          <div class="mb-2">
-            <label class="form-label mb-2">Organization Name</label>
-            <input
-              v-model="newOrgName"
-              type="text"
-              class="form-control form-control-lg theme-input"
-              placeholder="Enter organization name"
-              autofocus
-              @keyup.enter="handleCreateOrg"
-            />
-          </div>
-          <div v-if="createOrgError" class="text-danger small mt-2 d-flex align-items-center">
-            <i class="bi bi-exclamation-circle me-1"></i> {{ createOrgError }}
-          </div>
-        </div>
-        <div class="modal-footer border-0 p-4 pt-0">
-          <button
-            type="button"
-            class="btn btn-link text-muted text-decoration-none fw-semibold me-auto"
-            @click="closeCreateOrgModal"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            class="btn btn-theme-primary rounded-pill px-5 py-2 fw-bold"
-            :disabled="!newOrgName.trim() || isCreatingOrg"
-            @click="handleCreateOrg"
-          >
-            <span v-if="isCreatingOrg" class="spinner-border spinner-border-sm me-2"></span>
-            {{ isCreatingOrg ? 'Creating...' : 'Create' }}
-          </button>
-        </div>
       </div>
     </div>
   </div>
@@ -484,11 +260,6 @@ const handleRespond = async (invite: DesktopInvite, status: 'accepted' | 'reject
   background: #eef2f6;
 }
 
-.avatar-org {
-  background: #eff6ff;
-  color: #2563eb;
-}
-
 .access-row {
   cursor: pointer;
   transition: background 0.15s ease;
@@ -496,12 +267,6 @@ const handleRespond = async (invite: DesktopInvite, status: 'accepted' | 'reject
 
 .access-row:hover {
   background: #f8fafc;
-}
-
-.no-underline-hover:hover {
-  text-decoration: none !important;
-  background-color: var(--theme-primary-hover) !important;
-  color: white !important;
 }
 
 .min-w-0 {

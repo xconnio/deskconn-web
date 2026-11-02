@@ -125,50 +125,6 @@ export const authService = {
     return { session: s, result }
   },
 
-  async createOrganization(session: WampSession, name: string) {
-    return session.call('io.xconn.deskconn.organization.create', [name])
-  },
-
-  async listOrganizations(session: WampSession) {
-    return session.call('io.xconn.deskconn.organization.list')
-  },
-
-  async getOrganization(session: WampSession, id: string) {
-    return session.call('io.xconn.deskconn.organization.get', [id])
-  },
-
-  async updateOrganization(session: WampSession, id: string, name: string) {
-    return session.call('io.xconn.deskconn.organization.update', [id], { name })
-  },
-
-  async deleteOrganization(session: WampSession, id: string) {
-    return await session.call('io.xconn.deskconn.organization.delete', [id])
-  },
-
-  async inviteUserToOrganization(session: WampSession, orgId: string, email: string, role: string) {
-    return session.call('io.xconn.deskconn.organization.invitation.create', [orgId, email, role])
-  },
-
-  async listOrgInvitesInbox(session: WampSession) {
-    return session.call('io.xconn.deskconn.organization.invitation.inbox.list')
-  },
-
-  async listOrgInvitesOutbox(session: WampSession) {
-    return session.call('io.xconn.deskconn.organization.invitation.outbox.list')
-  },
-
-  async respondToOrgInvite(session: WampSession, invitationId: string, status: 'accepted' | 'rejected') {
-    return session.call('io.xconn.deskconn.organization.invitation.respond', [invitationId, status])
-  },
-
-  async updateOrgMemberRole(session: WampSession, orgId: string, userId: string, role: string) {
-    return session.call('io.xconn.deskconn.organization.member.role.update', [orgId, userId, role])
-  },
-
-  async removeOrgMember(session: WampSession, orgId: string, userId: string) {
-    return session.call('io.xconn.deskconn.organization.member.remove', [orgId, userId])
-  },
-
   async updateAccount(session: WampSession, name: string, password?: string) {
     const kwargs: Record<string, unknown> = { name }
     if (password) {
@@ -184,10 +140,6 @@ export const authService = {
     return session.call('io.xconn.deskconn.desktop.access.user.list', [desktopId])
   },
 
-  async listDesktopOrgAccesses(session: WampSession, desktopId: string) {
-    return session.call('io.xconn.deskconn.desktop.access.organization.list', [desktopId])
-  },
-
   async setUserAccess(session: WampSession, desktopId: string, userId: string, role: string) {
     return session.call('io.xconn.deskconn.desktop.access.user.set', [desktopId, userId, role])
   },
@@ -196,24 +148,12 @@ export const authService = {
     return session.call('io.xconn.deskconn.desktop.access.user.revoke', [accessId])
   },
 
-  async revokeOrgAccess(session: WampSession, accessId: string) {
-    return session.call('io.xconn.deskconn.desktop.access.organization.revoke', [accessId])
-  },
-
   async updateUserAccessRole(session: WampSession, accessId: string, role: string) {
     return session.call('io.xconn.deskconn.desktop.access.user.update', [accessId, role])
   },
 
-  async updateOrgAccessRole(session: WampSession, accessId: string, role: string) {
-    return session.call('io.xconn.deskconn.desktop.access.organization.update', [accessId, role])
-  },
-
   async inviteUserToDesktop(session: WampSession, desktopId: string, email: string, role: string) {
     return session.call('io.xconn.deskconn.desktop.invitation.user.create', [desktopId, email, role])
-  },
-
-  async grantOrgDesktopAccess(session: WampSession, desktopId: string, organizationId: string) {
-    return session.call('io.xconn.deskconn.desktop.access.organization.grant', [desktopId, organizationId])
   },
 
   async listDesktopInvitesInbox(session: WampSession) {
@@ -226,10 +166,6 @@ export const authService = {
 
   async cancelDesktopInvite(session: WampSession, invitationId: string) {
     return session.call('io.xconn.deskconn.desktop.invitation.user.cancel', [invitationId])
-  },
-
-  async cancelOrgInvite(session: WampSession, invitationId: string) {
-    return session.call('io.xconn.deskconn.organization.invitation.cancel', [invitationId])
   },
 
   async getMyDesktopAccess(session: WampSession, desktopId: string) {
