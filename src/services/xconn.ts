@@ -11,6 +11,7 @@ import {
   type ClientAuthenticator,
   type Serializer,
   type Result,
+  type RPCStream,
 } from '@xconnio/core'
 export {
   ApplicationError,
@@ -128,22 +129,44 @@ class OwnedSession {
     )
   }
 
-  async openStream(): Promise<WebTransportBidirectionalStream> {
-    if (!this.transport) throw new Error('This session does not support relay streams')
-    const stream = await this.transport.openStream()
+  async openRPCStream(procedure: string, input = false): Promise<ReadableWritablePair<Uint8Array, Uint8Array>> {
+    const cancellation = new AbortController()
+    let stream: RPCStream
+    let failure: unknown
+    if (input) {
+      const offered = await this.native.offerStream()
+      stream = offered.stream
+      void this.native.call(procedure).arg(null).arg(offered.reference).signal(cancellation.signal).execute()
+        .catch((error: unknown) => {
+          failure = error
+          return stream.close()
+        })
+    } else {
+      const result = await this.native.call(procedure).signal(cancellation.signal).execute()
+      stream = await result.argStream(1)
+    }
+    const close = async () => {
+      cancellation.abort()
+      await stream.close()
+    }
     return {
       readable: new ReadableStream<Uint8Array>({
         async pull(controller) {
-          const value = await stream.read()
-          if (value === undefined) controller.close()
-          else controller.enqueue(value)
+          try {
+            const value = await stream.read()
+            if (value === undefined && failure !== undefined) controller.error(failure)
+            else if (value === undefined) controller.close()
+            else controller.enqueue(value)
+          } catch (error) {
+            controller.error(failure ?? error)
+          }
         },
-        cancel: () => stream.close(),
+        cancel: close,
       }),
       writable: new WritableStream<Uint8Array>({
         write: (data) => stream.write(data),
         close: () => stream.writeEof(),
-        abort: () => stream.close(),
+        abort: close,
       }),
     }
   }
