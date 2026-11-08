@@ -35,7 +35,7 @@
     "vue": "^3.5.44",
     "vue-router": "^5.4.0",
     "vue3-otp-input": "^0.5.40",
-    "@xconnio/core": "^0.1.1"
+    "@xconnio/core": "^0.1.6"
   },
   "devDependencies": {
     "@tsconfig/node24": "^24.0.5",
