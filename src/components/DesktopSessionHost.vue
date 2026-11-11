@@ -1018,9 +1018,14 @@ onUnmounted(() => {
   pointer-events: none;
 }
 
+/* The dimming is the overlay's (backdrop-filter), not a filter here: that would
+   dim the dock too, whose Machines and Profile still work offline. */
 .launcher-body.is-disconnected {
-  filter: grayscale(1) brightness(0.65);
   pointer-events: none;
+}
+
+.launcher-body.is-disconnected :deep(.dock) {
+  z-index: 60;
 }
 
 .windows-layer {
@@ -1076,6 +1081,8 @@ onUnmounted(() => {
   font-weight: 600;
   text-align: center;
   padding: 1rem;
+  backdrop-filter: grayscale(1) brightness(0.65);
+  -webkit-backdrop-filter: grayscale(1) brightness(0.65);
 }
 
 .disconnected-overlay i {

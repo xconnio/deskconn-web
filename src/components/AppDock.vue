@@ -450,6 +450,8 @@ onUnmounted(() => {
         >
           <button
             class="dock-icon dock-icon-machines"
+            :class="{ 'dock-icon-disabled': offline }"
+            :disabled="offline"
             aria-label="Show Apps"
             @click="toggleWindowsOverview()"
             @wheel.prevent="onAppsWheel"
@@ -545,6 +547,11 @@ onUnmounted(() => {
 
         <div class="dock-divider"></div>
 
+        <div class="dock-machine" :title="`${desktopName} (${connectionMode})`">
+          <span class="dock-machine-mode">{{ connectionMode }}</span>
+          <span class="dock-machine-name">{{ desktopName }}</span>
+        </div>
+
         <div class="dock-icon-wrapper" :ref="(el) => setIconRef('profile', el as Element | null)">
           <button
             class="dock-icon dock-icon-account"
@@ -555,11 +562,6 @@ onUnmounted(() => {
           >
             <i class="bi bi-person-circle"></i>
           </button>
-        </div>
-
-        <div class="dock-machine" :title="`${desktopName} (${connectionMode})`">
-          <span class="dock-machine-mode">{{ connectionMode }}</span>
-          <span class="dock-machine-name">{{ desktopName }}</span>
         </div>
       </template>
 
@@ -949,6 +951,7 @@ onUnmounted(() => {
 
 .dock-icon-disabled {
   opacity: 0.4;
+  filter: grayscale(1);
   cursor: not-allowed;
 }
 
