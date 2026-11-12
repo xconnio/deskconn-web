@@ -1,4 +1,4 @@
-import { AnonymousAuthenticator, CBORSerializer } from '@xconnio/core'
+import { AnonymousAuthenticator, CBORSerializer } from '@xconnio/xconn'
 import { ClientConfig, connectTransport, connectWAMP } from '../src/services/xconn'
 import { requestRange, uploadFile } from '../src/services/fileStream'
 import { openShell } from '../src/services/shellStream'
