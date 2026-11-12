@@ -31,7 +31,7 @@ export async function exercise(server: Record<string, string>) {
     check(routed.isConnected(), 'Closing a child closed the shared connection')
 
     stage = 'relay stream'
-    const stream = await routed.openStream()
+    const stream = await routed.openRPCStream('rpc.stream')
     const writer = stream.writable.getWriter()
     const reader = stream.readable.getReader()
     stage = 'relay write'

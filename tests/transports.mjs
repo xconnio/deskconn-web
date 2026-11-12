@@ -8,7 +8,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { createServer } from 'vite'
 
 const executable = process.env.CHROMIUM_BIN
-const binary = process.env.XCONN_TRANSPORT_PEER
+const binary = process.env.DESKCONN_STREAM_PEER || process.env.XCONN_TRANSPORT_PEER
 if (!executable || !binary) throw new Error('Set CHROMIUM_BIN and XCONN_TRANSPORT_PEER')
 const fixture = spawn(binary, [], { stdio: ['pipe', 'pipe', 'inherit'] })
 const profile = await mkdtemp(join(tmpdir(), 'deskconn-web-test-'))
@@ -68,13 +68,14 @@ try {
     })
   await call('Page.navigate', { url: `${url}/tests/empty.html` })
   await delay(500)
+  const testModule = process.env.DESKCONN_STREAM_PEER ? 'features' : 'transports'
   const result = await Promise.race([
     call('Runtime.evaluate', {
-      expression: `import('/tests/transports.ts').then(module => module.exercise(${JSON.stringify(addresses)}))`,
+      expression: `import('/tests/${testModule}.ts').then(module => module.exercise(${JSON.stringify(addresses)}))`,
       awaitPromise: true,
       returnByValue: true,
     }),
-    delay(30000, undefined, { ref: false }).then(() => {
+    delay(60000, undefined, { ref: false }).then(() => {
       throw new Error('Browser transport tests timed out')
     }),
   ])

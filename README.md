@@ -71,3 +71,20 @@ XCONN_TRANSPORT_PEER="$PWD/../xconn-core/target/debug/examples/transport_peer" \
 The tests use only local endpoints and cover RPC payloads, progressive results,
 shared connection ownership, relay bytes/cancellation, and full-size raw WebRTC packets.
 `npm run build` also verifies TypeScript and emits the Core WASM as a Vite asset.
+
+### DeskConn feature interoperability
+
+File transfers and terminal tabs use RPC-associated streams on the selected
+WAMP session, with identical encryption over WebTransport and WebRTC. Raw
+feature data channels and the old relay routing header are no longer used.
+
+Build `tests/client-peer` in the migrated DeskConn checkout with its native SDK
+installed, then run the actual backend feature tests:
+
+```sh
+DESKCONN_STREAM_PEER=/path/to/deskconn-client-peer \
+CHROMIUM_BIN=/path/to/chrome npm run test:transports
+```
+
+This covers multi-megabyte encrypted uploads/downloads, concurrent shells,
+empty reads, missing files, cancellation and cleanup across the yamux bridge.

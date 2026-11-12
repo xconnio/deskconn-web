@@ -1,19 +1,5 @@
-// Client side of deskconn's stream-based file-transfer protocol: a transfer
-// opens a raw WebRTC data channel (direct) or WebTransport stream (relay) on
-// the caller's single existing connection, does a per-stream X25519 key
-// exchange, then an encrypted control message says what to do ('read' /
-// 'init' + 'write') followed by raw encrypted byte chunks (see
-// filestreamencryption.go/filetransferp2p.go and quictransfer.go).
-//
-// Anything over PARALLEL_CHUNK_SIZE is split into that many byte ranges and
-// fetched/sent over up to PARALLEL_WORKERS channels/streams in parallel
-// (mirroring the CLI); downloads reassemble the out-of-order pieces back
-// into one ordered stream (ChunkReassembler), uploads don't need to since
-// the server writes each chunk at its own offset. Anything smaller skips
-// all of that for a plain single-channel/single-stream path instead
-// (directReadRange/webTransportReadRange).
-import type { DirectChannel } from './xconn'
-import { getWebRTCSession } from './rtcRegistry'
+// Encrypted file transfers over RPC-associated byte streams. WAMP authorizes
+// each operation; XConn selects the direct or routed stream carrier.
 import type { WampSession } from './wamp'
 import { baseName } from '@/utils/filePath'
 import {
@@ -26,7 +12,6 @@ import {
   type EncryptionKeys,
 } from '@/utils/encryption'
 
-const CHANNEL_LABEL = 'file-stream'
 
 export class NoDirectConnectionError extends Error {
   constructor() {
@@ -35,13 +20,10 @@ export class NoDirectConnectionError extends Error {
   }
 }
 
-// True whenever a raw stream (either transport) can be opened at all — the
-// caller no longer needs to care which one, both support arbitrary-offset
-// range reads identically.
+// Both direct and routed sessions expose the same RPC-associated streams.
 export function canStreamRanges(session: WampSession | null | undefined): boolean {
   if (!session) return false
-  if (getWebRTCSession(session)) return true
-  return typeof session.openStream === 'function'
+  return typeof session.openRPCStream === 'function'
 }
 
 interface FSRequest {
@@ -83,12 +65,7 @@ function linkAbort(signal?: AbortSignal): AbortController {
   return controller
 }
 
-// Bounds the per-stream key exchange (and, for WebTransport, the one-shot
-// request/response) — mirrors p2pRequestTimeout in filetransferp2p.go. A
-// stalled or dropped first round-trip on a fresh channel/stream would
-// otherwise hang forever with no way to cancel it (see directKeyExchange /
-// openWebTransportStream), since the caller-supplied AbortSignal only gets
-// wired up once these return.
+// Bound setup so a lost handshake cannot leave an operation waiting forever.
 const HANDSHAKE_TIMEOUT_MS = 15_000
 
 function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
@@ -104,7 +81,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
 // ========================= Parallel chunk-worker pool =========================
 // Mirrors filetransfer.go's planChunks/effectiveWorkers/runChunkWorkers: the
 // unit of work a worker pulls off the shared queue, not the wire message
-// size (see DIRECT_MESSAGE_SIZE/WEBTRANSPORT_MESSAGE_SIZE below for that).
+// size (see DIRECT_MESSAGE_SIZE/STREAM_MESSAGE_SIZE below for that).
 
 const PARALLEL_CHUNK_SIZE = 4 * 1024 * 1024 // 4MB
 const PARALLEL_WORKERS = 4
@@ -266,13 +243,10 @@ export async function requestRangeStream(
   length: number,
   signal?: AbortSignal,
 ): Promise<RangeResult> {
-  const usesDirect = !!getWebRTCSession(session)
-  if (!usesDirect && typeof session?.openStream !== 'function') throw new NoDirectConnectionError()
+  if (!canStreamRanges(session)) throw new NoDirectConnectionError()
 
   const relPath = baseName(path)
-  return usesDirect
-    ? directReadRange(session, path, relPath, offset, length, signal)
-    : webTransportReadRange(session, realm, path, relPath, offset, length, signal)
+  return streamReadRange(session, realm, path, relPath, offset, length, signal)
 }
 
 // A range that fits in a single PARALLEL_CHUNK_SIZE chunk goes through
@@ -289,8 +263,7 @@ export async function requestRange(
   length: number,
   signal?: AbortSignal,
 ): Promise<RangeResult> {
-  const usesDirect = !!getWebRTCSession(session)
-  if (!usesDirect && typeof session?.openStream !== 'function') throw new NoDirectConnectionError()
+  if (!canStreamRanges(session)) throw new NoDirectConnectionError()
 
   const relPath = baseName(path)
   const chunks = planChunks(offset, length)
@@ -298,9 +271,7 @@ export async function requestRange(
 
   return readRangeParallel(
     chunks, offset, length,
-    usesDirect
-      ? (s) => openDirectReadWorker(session, path, relPath, s)
-      : (s) => openWebTransportReadWorker(session, realm, path, relPath, s),
+    (s) => openReadWorker(session, realm, path, relPath, s),
     signal,
   )
 }
@@ -314,8 +285,7 @@ export async function uploadFile(
   onProgress?: (progress: UploadProgress) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const usesDirect = !!getWebRTCSession(session)
-  if (!usesDirect && typeof session?.openStream !== 'function') throw new NoDirectConnectionError()
+  if (!canStreamRanges(session)) throw new NoDirectConnectionError()
 
   const initReq: FSRequest = {
     op: 'init',
@@ -324,8 +294,7 @@ export async function uploadFile(
     source_is_dir: false,
     target_is_dir_hint: true,
   }
-  if (usesDirect) await directOneShotRequest(session, initReq, signal)
-  else await webTransportRequest(session, realm, initReq, signal)
+  await streamRequest(session, realm, initReq, signal)
 
   if (file.size === 0) return
 
@@ -340,9 +309,7 @@ export async function uploadFile(
   }
 
   await runChunkWorkers(chunks, effectiveWorkers(chunks.length), abort, async (nextJob) => {
-    const worker = usesDirect
-      ? await openDirectWriteWorker(session, destDir, fileName, false, true, file, abort.signal)
-      : await openWebTransportWriteWorker(session, realm, destDir, fileName, false, true, file, abort.signal)
+    const worker = await openWriteWorker(session, realm, destDir, fileName, false, true, file, abort.signal)
     try {
       let job: Chunk | undefined
       while ((job = nextJob())) {
@@ -356,19 +323,7 @@ export async function uploadFile(
 
 // ============================= Direct (WebRTC) =============================
 
-const directMsgControl = 0
-const directMsgData = 1
-
-// fileStreamChunkSize on the Go side — the wire message size within one
-// read/write request, not the parallel-worker job unit (PARALLEL_CHUNK_SIZE).
-const DIRECT_MESSAGE_SIZE = 16 * 1024
-const DIRECT_MAX_BUFFERED = 512 * 1024
-const DIRECT_LOW_BUFFERED = 256 * 1024
-
-// Exported: also used by shellStream.ts, which sends the same kind-byte
-// envelope shape over both a direct data channel and (unlike file transfer,
-// which never needs it — see the header comment) a WebTransport stream too.
-export function directEnvelope(kind: number, plaintext: Uint8Array, key: Uint8Array): Uint8Array<ArrayBuffer> {
+export function encryptedEnvelope(kind: number, plaintext: Uint8Array, key: Uint8Array): Uint8Array<ArrayBuffer> {
   const ciphertext = encryptPayload(plaintext, key)
   const envelope = new Uint8Array(1 + ciphertext.length)
   envelope[0] = kind
@@ -376,344 +331,6 @@ export function directEnvelope(kind: number, plaintext: Uint8Array, key: Uint8Ar
   return envelope
 }
 
-export function directDecryptEnvelope(data: ArrayBuffer, key: Uint8Array): { kind: number; plaintext: Uint8Array } {
-  const bytes = new Uint8Array(data)
-  const kind = bytes[0]
-  if (kind === undefined) throw new Error('empty message')
-  return { kind, plaintext: decryptPayload(bytes.slice(1), key) }
-}
-
-// label defaults to the file-stream channel label so existing callers are
-// unaffected; shellStream.ts passes shellChannelLabel ("shell") instead —
-// the server classifies a direct shell channel by label rather than by its
-// first message's content (see HandleAuxDataChannel in iptunnel.go).
-export async function openDirectChannel(
-  session: WampSession, signal?: AbortSignal, label: string = CHANNEL_LABEL,
-): Promise<DirectChannel> {
-  const webrtc = getWebRTCSession(session)
-  if (!webrtc) throw new NoDirectConnectionError()
-  const channel = await webrtc.openDataChannel(label)
-  if (signal?.aborted) {
-    channel.close()
-    throw new Error('cancelled')
-  }
-  return channel
-}
-
-// Sends our plaintext public key as the channel's first (text) message,
-// waits for the peer's plaintext public key back, derives session keys.
-// Mirrors p2pClientKeyExchange in filestreamencryption.go. Times out (rather
-// than hanging forever) if the peer never replies, and rejects immediately
-// if the channel closes/errors mid-handshake — the caller is expected to
-// have already wired its own abort signal to close the channel, so this is
-// what turns that close into a real rejection instead of a silent stall.
-export async function directKeyExchange(channel: DirectChannel): Promise<EncryptionKeys> {
-  const { publicKey, privateKey } = createX25519KeyPair()
-
-  const serverPublicKey = await new Promise<Uint8Array>((resolve, reject) => {
-    let settled = false
-    const finish = (action: () => void) => {
-      if (settled) return
-      settled = true
-      window.clearTimeout(timer)
-      channel.removeEventListener('message', onMessage)
-      channel.removeEventListener('close', onClosed)
-      channel.removeEventListener('error', onClosed)
-      action()
-    }
-    const onMessage = (event: MessageEvent) => {
-      if (typeof event.data !== 'string') return
-      try {
-        const msg = JSON.parse(event.data) as { public_key?: string }
-        if (!msg.public_key) throw new Error('missing public key in key exchange response')
-        const key = base64ToBytes(msg.public_key)
-        finish(() => resolve(key))
-      } catch (err) {
-        finish(() => reject(err instanceof Error ? err : new Error('invalid key exchange message')))
-      }
-    }
-    const onClosed = () => finish(() => reject(new Error('connection closed')))
-    const timer = window.setTimeout(
-      () => finish(() => reject(new Error('timed out waiting for key exchange'))),
-      HANDSHAKE_TIMEOUT_MS,
-    )
-    channel.addEventListener('message', onMessage)
-    channel.addEventListener('close', onClosed)
-    channel.addEventListener('error', onClosed)
-    channel.send(JSON.stringify({ public_key: bytesToBase64(publicKey) }))
-  })
-
-  if (serverPublicKey.length !== 32) throw new Error('invalid peer public key length')
-  return deriveSessionKeys(privateKey, serverPublicKey)
-}
-
-// One-shot request/response on its own channel — the server closes the
-// channel right after replying (see serveWebRTCInit), so it can't be reused
-// for a follow-up read/write.
-async function directOneShotRequest(session: WampSession, req: FSRequest, signal?: AbortSignal): Promise<FSResponse> {
-  const channel = await openDirectChannel(session, signal)
-  // Wired before the key exchange (not after) so a cancel during the
-  // handshake actually closes the channel instead of being a no-op until
-  // the handshake happens to finish on its own.
-  signal?.addEventListener('abort', () => { try { channel.close() } catch { /* ignore */ } }, { once: true })
-  try {
-    const keys = await directKeyExchange(channel)
-    return await withTimeout(new Promise<FSResponse>((resolve, reject) => {
-      channel.onmessage = (event: MessageEvent) => {
-        if (!(event.data instanceof ArrayBuffer)) return
-        try {
-          const { kind, plaintext } = directDecryptEnvelope(event.data, keys.decryptKey)
-          if (kind !== directMsgControl) return
-          const resp = JSON.parse(new TextDecoder().decode(plaintext)) as FSResponse
-          if (!resp.ok) { reject(responseError(resp)); return }
-          resolve(resp)
-        } catch (err) {
-          reject(err instanceof Error ? err : new Error('invalid response'))
-        }
-      }
-      channel.onclose = () => reject(new Error('connection closed'))
-      channel.onerror = () => reject(new Error('connection error'))
-      channel.send(directEnvelope(directMsgControl, new TextEncoder().encode(JSON.stringify(req)), keys.encryptKey))
-    }), HANDSHAKE_TIMEOUT_MS, 'timed out waiting for response')
-  } finally {
-    try { channel.close() } catch { /* ignore */ }
-  }
-}
-
-// Single channel, single request, streaming the response straight to the
-// caller as it arrives (rather than buffering the whole range before
-// returning any of it) — one channel per download, matching the original
-// working implementation. Resolves as soon as the server acks the request;
-// the caller reads the actual bytes off the returned stream as they land.
-function directReadRange(
-  session: WampSession,
-  path: string,
-  relPath: string,
-  offset: number,
-  length: number,
-  signal?: AbortSignal,
-): Promise<RangeResult> {
-  return new Promise<RangeResult>((resolveOuter, rejectOuter) => {
-    void (async () => {
-      const channel = await openDirectChannel(session, signal)
-      // Wired before the key exchange (not after) so a cancel during the
-      // handshake actually closes the channel instead of being a no-op
-      // until the handshake happens to finish on its own.
-      signal?.addEventListener('abort', () => { try { channel.close() } catch { /* ignore */ } }, { once: true })
-      const keys = await directKeyExchange(channel)
-
-      let ackSettled = false
-      let done = false
-      let received = 0
-      let streamController!: ReadableStreamDefaultController<Uint8Array>
-
-      const stream = new ReadableStream<Uint8Array>({
-        start(controller) { streamController = controller },
-        cancel() { try { channel.close() } catch { /* ignore */ } },
-      })
-
-      function fail(err: Error) {
-        if (done) return
-        done = true
-        if (!ackSettled) { ackSettled = true; rejectOuter(err) }
-        else { try { streamController.error(err) } catch { /* already closed */ } }
-        try { channel.close() } catch { /* ignore */ }
-      }
-
-      channel.onmessage = (event: MessageEvent) => {
-        if (!(event.data instanceof ArrayBuffer)) return
-        let kind: number, plaintext: Uint8Array
-        try { ({ kind, plaintext } = directDecryptEnvelope(event.data, keys.decryptKey)) }
-        catch (err) { fail(err instanceof Error ? err : new Error('decrypt failed')); return }
-
-        if (!ackSettled) {
-          if (kind !== directMsgControl) return
-          let resp: FSResponse
-          try { resp = JSON.parse(new TextDecoder().decode(plaintext)) as FSResponse }
-          catch { fail(new Error('invalid response')); return }
-          if (!resp.ok) { fail(responseError(resp)); return }
-          ackSettled = true
-          resolveOuter({ stream })
-          return
-        }
-
-        if (kind !== directMsgData || done) return
-        received += plaintext.length
-        streamController.enqueue(plaintext)
-        if (received >= length) {
-          done = true
-          try { streamController.close() } catch { /* ignore */ }
-          try { channel.close() } catch { /* ignore */ }
-        }
-      }
-      channel.onclose = () => fail(new Error('connection closed before transfer finished'))
-      channel.onerror = () => fail(new Error('connection error'))
-
-      const req: FSRequest = { op: 'read', path, rel_path: relPath, offset, length }
-      channel.send(directEnvelope(directMsgControl, new TextEncoder().encode(JSON.stringify(req)), keys.encryptKey))
-    })().catch(rejectOuter)
-  })
-}
-
-// Backs the parallel download path (large ranges only — see requestRange):
-// opens one data channel and keeps it for the lifetime of the worker,
-// reusing it across every chunk that worker is assigned, mirroring
-// p2pReadWorker in filetransferp2p.go. A single activeReject covers both
-// the ack-wait and the data-wait phase of each readChunk call, so a channel
-// close/error at any point during a chunk correctly rejects whichever
-// phase is in flight instead of only one of them.
-async function openDirectReadWorker(session: WampSession, path: string, relPath: string, signal: AbortSignal): Promise<ChunkReadWorker> {
-  const channel = await openDirectChannel(session, signal)
-  // Wired before the key exchange (not after) so a cancel during the
-  // handshake actually closes the channel instead of being a no-op until
-  // the handshake happens to finish on its own.
-  signal.addEventListener('abort', () => { try { channel.close() } catch { /* ignore */ } }, { once: true })
-  const keys = await directKeyExchange(channel)
-
-  let ackResolve: ((r: FSResponse) => void) | null = null
-  let onDataPiece: ((data: Uint8Array) => void) | null = null
-  let activeReject: ((e: Error) => void) | null = null
-  let closedErr: Error | null = null
-
-  channel.onmessage = (event: MessageEvent) => {
-    if (!(event.data instanceof ArrayBuffer)) return
-    let kind: number, plaintext: Uint8Array
-    try { ({ kind, plaintext } = directDecryptEnvelope(event.data, keys.decryptKey)) } catch { return }
-    if (kind === directMsgControl) {
-      try {
-        const resp = JSON.parse(new TextDecoder().decode(plaintext)) as FSResponse
-        ackResolve?.(resp)
-      } catch { /* ignore malformed frame */ }
-      return
-    }
-    if (kind === directMsgData) onDataPiece?.(plaintext)
-  }
-  const onClosed = () => {
-    closedErr = new Error('connection closed')
-    activeReject?.(closedErr)
-  }
-  channel.onclose = onClosed
-  channel.onerror = onClosed
-
-  function readChunk(offset: number, length: number, onData: (pieceOffset: number, data: Uint8Array) => void): Promise<void> {
-    return new Promise<void>((resolve, reject) => {
-      let settled = false
-      const finish = (action: () => void) => {
-        if (settled) return
-        settled = true
-        ackResolve = null
-        onDataPiece = null
-        activeReject = null
-        action()
-      }
-
-      if (closedErr) { finish(() => reject(closedErr!)); return }
-      activeReject = (err: Error) => finish(() => reject(err))
-
-      let received = 0
-      let pos = offset
-      ackResolve = (resp: FSResponse) => {
-        if (!resp.ok) { finish(() => reject(responseError(resp))); return }
-        if (length === 0) finish(resolve)
-      }
-      onDataPiece = (piece: Uint8Array) => {
-        onData(pos, piece)
-        pos += piece.length
-        received += piece.length
-        if (received >= length) finish(resolve)
-      }
-
-      const req: FSRequest = { op: 'read', path, rel_path: relPath, offset, length }
-      channel.send(directEnvelope(directMsgControl, new TextEncoder().encode(JSON.stringify(req)), keys.encryptKey))
-    })
-  }
-
-  return { readChunk, close: () => { try { channel.close() } catch { /* ignore */ } } }
-}
-
-// Upload counterpart to directReadRange: unlike downloads, uploads DO use the
-// parallel chunk-worker pool (see the top-of-file comment for why) — this
-// opens one data channel and keeps it for the lifetime of the worker,
-// reusing it across every chunk that worker is assigned. Mirrors
-// p2pWriteWorker in filetransferp2p.go.
-async function openDirectWriteWorker(
-  session: WampSession,
-  path: string,
-  relPath: string,
-  sourceIsDir: boolean,
-  targetIsDirHint: boolean,
-  file: Blob,
-  signal: AbortSignal,
-): Promise<ChunkWriteWorker> {
-  const channel = await openDirectChannel(session, signal)
-  // Wired before the key exchange (not after) so a cancel during the
-  // handshake actually closes the channel instead of being a no-op until
-  // the handshake happens to finish on its own.
-  signal.addEventListener('abort', () => { try { channel.close() } catch { /* ignore */ } }, { once: true })
-  const keys = await directKeyExchange(channel)
-
-  let ackResolve: ((r: FSResponse) => void) | null = null
-  let ackReject: ((e: Error) => void) | null = null
-  let closedErr: Error | null = null
-  channel.onmessage = (event: MessageEvent) => {
-    if (!(event.data instanceof ArrayBuffer)) return
-    try {
-      const { kind, plaintext } = directDecryptEnvelope(event.data, keys.decryptKey)
-      if (kind !== directMsgControl) return
-      const resp = JSON.parse(new TextDecoder().decode(plaintext)) as FSResponse
-      ackResolve?.(resp)
-    } catch { /* ignore malformed frame */ }
-  }
-  const onClosed = () => {
-    closedErr = new Error('connection closed')
-    ackReject?.(closedErr)
-  }
-  channel.onclose = onClosed
-  channel.onerror = onClosed
-
-  function waitForAck(): Promise<FSResponse> {
-    if (closedErr) return Promise.reject(closedErr)
-    return new Promise((resolve, reject) => { ackResolve = resolve; ackReject = reject })
-  }
-
-  async function writeChunk(chunkOffset: number, chunkLength: number, onSent: (n: number) => void): Promise<void> {
-    const req: FSRequest = {
-      op: 'write', path, rel_path: relPath, offset: chunkOffset, length: chunkLength,
-      source_is_dir: sourceIsDir, target_is_dir_hint: targetIsDirHint,
-    }
-    channel.send(directEnvelope(directMsgControl, new TextEncoder().encode(JSON.stringify(req)), keys.encryptKey))
-    const ack = await waitForAck()
-    if (!ack.ok) throw responseError(ack)
-
-    let sent = 0
-    while (sent < chunkLength) {
-      if (signal.aborted) throw new Error('cancelled')
-      const start = chunkOffset + sent
-      const end = Math.min(start + DIRECT_MESSAGE_SIZE, chunkOffset + chunkLength)
-      const bytes = new Uint8Array(await file.slice(start, end).arrayBuffer())
-      const envelope = directEnvelope(directMsgData, bytes, keys.encryptKey)
-
-      while (channel.bufferedAmount + envelope.length > DIRECT_MAX_BUFFERED) {
-        if (closedErr) throw closedErr
-        await channel.waitBufferedBelow(DIRECT_LOW_BUFFERED)
-      }
-      channel.send(envelope)
-      sent += bytes.length
-      onSent(bytes.length)
-    }
-
-    const final = await waitForAck()
-    if (!final.ok) throw responseError(final)
-  }
-
-  return { writeChunk, close: () => { try { channel.close() } catch { /* ignore */ } } }
-}
-
-// =========================== Relay (WebTransport) ===========================
-
-// Buffers reads from a WebTransport stream so exact-length frames can be
-// pulled out regardless of how the underlying reads happen to chunk.
-// Exported: also used by shellStream.ts.
 export class FrameReader {
   private buffer = new Uint8Array(0)
   constructor(private reader: ReadableStreamDefaultReader<Uint8Array>) {}
@@ -732,6 +349,7 @@ export class FrameReader {
   async readFrame(): Promise<Uint8Array> {
     await this.fill(4)
     const length = decodeUint32BE(this.buffer)
+    if (length > 16 * 1024 * 1024) throw new Error('Feature frame exceeds 16 MiB')
     await this.fill(4 + length)
     const frame = this.buffer.slice(4, 4 + length)
     this.buffer = this.buffer.slice(4 + length)
@@ -772,12 +390,8 @@ async function readEncryptedJSON<T>(reader: FrameReader, key: Uint8Array): Promi
   return JSON.parse(new TextDecoder().decode(decryptPayload(frame, key))) as T
 }
 
-// Mirrors quicClientKeyExchange in quictransfer.go, including the router's
-// own plaintext error frame (device unreachable / bad realm) before the
-// device is ever involved. Times out (rather than hanging forever) if the
-// peer never replies — the caller wires its own abort signal to the raw
-// stream around this call so a cancel actually unblocks the pending read.
-async function webTransportKeyExchange(writer: ByteWriter, reader: FrameReader): Promise<EncryptionKeys> {
+// Per-stream encryption is unchanged; routing is authorized by the RPC.
+async function streamKeyExchange(writer: ByteWriter, reader: FrameReader): Promise<EncryptionKeys> {
   const { publicKey, privateKey } = createX25519KeyPair()
   await writeJSON(writer, { public_key: bytesToBase64(publicKey) })
 
@@ -790,74 +404,69 @@ async function webTransportKeyExchange(writer: ByteWriter, reader: FrameReader):
   return deriveSessionKeys(privateKey, serverPublicKey)
 }
 
-export interface WebTransportStream {
+export interface RPCFeatureStream {
   writer: ByteWriter
   reader: FrameReader
-  raw: WebTransportBidirectionalStream
+  raw: ReadableWritablePair<Uint8Array, Uint8Array>
   keys: EncryptionKeys
 }
 
-// signal, if given, is wired to abort the raw stream only for the duration
-// of this call (including the key exchange) — not the same as the caller's
-// own longer-lived listener for the rest of the worker's life, which it
-// still needs to register itself once this returns. Exported: also used by
-// shellStream.ts, with op="shell" and an empty path (see fsOpShell in
-// filetransfer.go — it doesn't carry an fsRequest, just routes the stream).
-export async function openWebTransportStream(
+// Abort covers setup; workers retain their own listener for the operation lifetime.
+export async function openRPCFeatureStream(
   session: WampSession,
   realm: string,
   op: string,
-  path: string,
   signal?: AbortSignal,
-): Promise<WebTransportStream> {
-  const raw = (await session.openStream()) as WebTransportBidirectionalStream
+): Promise<RPCFeatureStream> {
+  if (session.realm() !== realm) throw new Error('Stream realm does not match the WAMP session')
+  if (signal?.aborted) throw new Error('cancelled')
+  const procedure = op === 'shell' ? 'io.xconn.deskconn.shell.stream' : `io.xconn.deskconn.file.stream.${op}`
+  const raw = await session.openRPCStream(procedure, op === 'init' || op === 'write')
   if (signal?.aborted) {
-    abortWebTransportStream(raw)
+    closeFeatureStream(raw)
     throw new Error('cancelled')
   }
-  const onAbort = () => abortWebTransportStream(raw)
+  const onAbort = () => closeFeatureStream(raw)
   signal?.addEventListener('abort', onAbort, { once: true })
   try {
     const writer = raw.writable.getWriter()
     const rawReader = raw.readable.getReader()
     streamLocks.set(raw, { writer, reader: rawReader })
     const reader = new FrameReader(rawReader)
-    await writeJSON(writer, { realm, op, path })
-    const keys = await webTransportKeyExchange(writer, reader)
+    const keys = await streamKeyExchange(writer, reader)
     return { writer, reader, raw, keys }
+  } catch (error) {
+    closeFeatureStream(raw)
+    throw error
   } finally {
     signal?.removeEventListener('abort', onAbort)
   }
 }
 
-// The writer and reader openWebTransportStream locked a stream's halves with: once
+// The writer and reader openRPCFeatureStream locked a stream's halves with: once
 // locked, only they can abort/cancel them, raw.writable/raw.readable can't.
-const streamLocks = new WeakMap<WebTransportBidirectionalStream, {
+const streamLocks = new WeakMap<ReadableWritablePair<Uint8Array, Uint8Array>, {
   writer: WritableStreamDefaultWriter<Uint8Array>
   reader: ReadableStreamDefaultReader<Uint8Array>
 }>()
 
 // Resets both halves, so the device stops sending: data left unread on an open stream
 // holds the connection's flow-control window until no stream on it moves.
-export function abortWebTransportStream(raw: WebTransportBidirectionalStream): void {
+export function closeFeatureStream(raw: ReadableWritablePair<Uint8Array, Uint8Array>): void {
   const locks = streamLocks.get(raw)
   // These reject rather than throw, e.g. on a stream that already ended.
   void (locks ? locks.writer.abort() : raw.writable.abort()).catch(() => {})
   void (locks ? locks.reader.cancel() : raw.readable.cancel()).catch(() => {})
 }
 
-// One-shot request/response on its own stream — mirrors quicRequest in
-// quictransfer.go. deskconn-router bridges a WebTransport stream to the same
-// device-side QUIC stream handler a native QUIC client would use, so this
-// speaks the identical wire protocol despite the browser-facing API being
-// WebTransport rather than raw QUIC.
-async function webTransportRequest(
+// One authorized RPC stream per one-shot file operation.
+async function streamRequest(
   session: WampSession,
   realm: string,
   req: FSRequest,
   signal?: AbortSignal,
 ): Promise<FSResponse> {
-  const { writer, reader, raw, keys } = await openWebTransportStream(session, realm, req.op, req.path ?? '', signal)
+  const { writer, reader, raw, keys } = await openRPCFeatureStream(session, realm, req.op, signal)
   try {
     await writeEncryptedJSON(writer, req, keys.encryptKey)
     const resp = await withTimeout(
@@ -866,7 +475,7 @@ async function webTransportRequest(
     if (!resp.ok) throw responseError(resp)
     return resp
   } finally {
-    abortWebTransportStream(raw)
+    closeFeatureStream(raw)
   }
 }
 
@@ -874,7 +483,7 @@ async function webTransportRequest(
 // caller as it arrives (via pull) rather than buffering the whole range
 // before returning any of it) — one stream per download, matching the
 // original working implementation.
-async function webTransportReadRange(
+async function streamReadRange(
   session: WampSession,
   realm: string,
   path: string,
@@ -883,35 +492,47 @@ async function webTransportReadRange(
   length: number,
   signal?: AbortSignal,
 ): Promise<RangeResult> {
-  const { writer, reader, raw, keys } = await openWebTransportStream(session, realm, 'read', path, signal)
-  const onAbort = () => abortWebTransportStream(raw)
+  const { writer, reader, raw, keys } = await openRPCFeatureStream(session, realm, 'read', signal)
+  const onAbort = () => closeFeatureStream(raw)
   signal?.addEventListener('abort', onAbort, { once: true })
 
-  const req: FSRequest = { op: 'read', path, rel_path: relPath, offset, length }
-  await writeEncryptedJSON(writer, req, keys.encryptKey)
-  const ack = await withTimeout(
-    readEncryptedJSON<FSResponse>(reader, keys.decryptKey), HANDSHAKE_TIMEOUT_MS, 'timed out waiting for response',
-  )
-  if (!ack.ok) { abortWebTransportStream(raw); throw responseError(ack) }
+  const close = () => {
+    closeFeatureStream(raw)
+    signal?.removeEventListener('abort', onAbort)
+  }
+  try {
+    const req: FSRequest = { op: 'read', path, rel_path: relPath, offset, length }
+    await writeEncryptedJSON(writer, req, keys.encryptKey)
+    const ack = await withTimeout(
+      readEncryptedJSON<FSResponse>(reader, keys.decryptKey), HANDSHAKE_TIMEOUT_MS, 'timed out waiting for response',
+    )
+    if (!ack.ok) throw responseError(ack)
+  } catch (error) {
+    close()
+    throw error
+  }
 
   let received = 0
   const stream = new ReadableStream<Uint8Array>({
     async pull(controller) {
-      if (signal?.aborted) { controller.error(new Error('cancelled')); abortWebTransportStream(raw); return }
-      const frame = await reader.readFrame()
-      const plaintext = decryptPayload(frame, keys.decryptKey)
-      received += plaintext.length
-      controller.enqueue(plaintext)
-      if (received >= length) {
-        controller.close()
-        abortWebTransportStream(raw)
-        signal?.removeEventListener('abort', onAbort)
+      try {
+        if (signal?.aborted) throw new Error('cancelled')
+        if (received < length) {
+          const plaintext = decryptPayload(await reader.readFrame(), keys.decryptKey)
+          if (plaintext.length === 0 || plaintext.length > length - received) throw new Error('Invalid file stream chunk length')
+          received += plaintext.length
+          controller.enqueue(plaintext)
+        }
+        if (received === length) {
+          controller.close()
+          close()
+        }
+      } catch (error) {
+        controller.error(error)
+        close()
       }
     },
-    cancel() {
-      abortWebTransportStream(raw)
-      signal?.removeEventListener('abort', onAbort)
-    },
+    cancel: close,
   })
   return { stream }
 }
@@ -920,15 +541,15 @@ async function webTransportReadRange(
 // opens one stream and keeps it for the lifetime of the worker, reusing it
 // across every chunk that worker is assigned, mirroring quicReadWorker in
 // quictransfer.go.
-async function openWebTransportReadWorker(
+async function openReadWorker(
   session: WampSession,
   realm: string,
   path: string,
   relPath: string,
   signal: AbortSignal,
 ): Promise<ChunkReadWorker> {
-  const { writer, reader, raw, keys } = await openWebTransportStream(session, realm, 'read', path, signal)
-  signal.addEventListener('abort', () => abortWebTransportStream(raw), { once: true })
+  const { writer, reader, raw, keys } = await openRPCFeatureStream(session, realm, 'read', signal)
+  signal.addEventListener('abort', () => closeFeatureStream(raw), { once: true })
 
   async function readChunk(offset: number, length: number, onData: (pieceOffset: number, data: Uint8Array) => void): Promise<void> {
     const req: FSRequest = { op: 'read', path, rel_path: relPath, offset, length }
@@ -947,15 +568,15 @@ async function openWebTransportReadWorker(
     }
   }
 
-  return { readChunk, close: () => abortWebTransportStream(raw) }
+  return { readChunk, close: () => closeFeatureStream(raw) }
 }
 
-// Upload counterpart to webTransportReadRange: unlike downloads, uploads DO
+// Upload counterpart to streamReadRange: unlike downloads, uploads DO
 // use the parallel chunk-worker pool (see the top-of-file comment for why)
 // — this opens one stream and keeps it for the lifetime of the worker,
 // reusing it across every chunk the worker is assigned. Mirrors
 // quicWriteWorker in quictransfer.go.
-async function openWebTransportWriteWorker(
+async function openWriteWorker(
   session: WampSession,
   realm: string,
   path: string,
@@ -965,8 +586,8 @@ async function openWebTransportWriteWorker(
   file: Blob,
   signal: AbortSignal,
 ): Promise<ChunkWriteWorker> {
-  const { writer, reader, raw, keys } = await openWebTransportStream(session, realm, 'write', path, signal)
-  signal.addEventListener('abort', () => abortWebTransportStream(raw), { once: true })
+  const { writer, reader, raw, keys } = await openRPCFeatureStream(session, realm, 'write', signal)
+  signal.addEventListener('abort', () => closeFeatureStream(raw), { once: true })
 
   async function writeChunk(chunkOffset: number, chunkLength: number, onSent: (n: number) => void): Promise<void> {
     const req: FSRequest = {
@@ -981,7 +602,7 @@ async function openWebTransportWriteWorker(
     while (sent < chunkLength) {
       if (signal.aborted) throw new Error('cancelled')
       const start = chunkOffset + sent
-      const end = Math.min(start + WEBTRANSPORT_MESSAGE_SIZE, chunkOffset + chunkLength)
+      const end = Math.min(start + STREAM_MESSAGE_SIZE, chunkOffset + chunkLength)
       const bytes = new Uint8Array(await file.slice(start, end).arrayBuffer())
       await writeFrame(writer, encryptPayload(bytes, keys.encryptKey))
       sent += bytes.length
@@ -992,9 +613,9 @@ async function openWebTransportWriteWorker(
     if (!final.ok) throw responseError(final)
   }
 
-  return { writeChunk, close: () => abortWebTransportStream(raw) }
+  return { writeChunk, close: () => closeFeatureStream(raw) }
 }
 
 // encChunkSize on the Go side — the wire message size within one read/write
 // request, not the parallel-worker job unit (PARALLEL_CHUNK_SIZE).
-const WEBTRANSPORT_MESSAGE_SIZE = 64 * 1024
+const STREAM_MESSAGE_SIZE = 64 * 1024
