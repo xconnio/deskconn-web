@@ -1,5 +1,5 @@
 import { reactive } from 'vue'
-import { AnonymousAuthenticator, CBORSerializer, Result } from '@xconnio/core'
+import { AnonymousAuthenticator, CBORSerializer, Result } from '@xconnio/xconn'
 import { ClientConfig, connectTransport, connectWAMP } from '../src/services/xconn'
 
 function check(value: unknown, message: string): asserts value {

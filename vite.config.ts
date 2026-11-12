@@ -56,7 +56,7 @@ export default defineConfig(({ mode }) => {
       serviceWorkerDevPlugin(),
     ],
     optimizeDeps: {
-      exclude: ['@xconnio/core'],
+      exclude: ['@xconnio/xconn'],
     },
     resolve: {
       alias: {

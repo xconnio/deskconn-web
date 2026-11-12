@@ -25,7 +25,7 @@ See [Vite Configuration Reference](https://vite.dev/config/).
 
 ## Project Setup
 
-The app installs `@xconnio/core` from npm, including its compiled WASM.
+The app installs `@xconnio/xconn` from npm, including its compiled WASM.
 A Core source checkout and Rust toolchain are not needed to build the app.
 
 ```sh
@@ -52,7 +52,7 @@ npm run lint
 
 ## Transport regression tests
 
-The app uses `@xconnio/core` for WAMP, codecs, authentication, WebTransport,
+The app uses `@xconnio/xconn` for WAMP, codecs, authentication, WebTransport,
 and WebRTC. Browser networking remains browser-native; Rust/WASM owns protocol
 state and codecs. App adapters retain DeskConn RPC call sites and encrypted
 shell/file record formats. Closing a direct session keeps borrowed relay signaling
@@ -61,10 +61,10 @@ alive; closing an owned relay session closes its connection.
 Use Node 22.22.2+, 24.15.0+, or 26+ for the transport test runner. Build Core's local peer and run the real Chromium tests:
 
 ```sh
-cargo build --manifest-path ../xconn-core/Cargo.toml --locked \
+cargo build --manifest-path ../xconn/Cargo.toml --locked \
   -p xconn-binding-runtime --all-features --example transport_peer
 CHROMIUM_BIN=/path/to/chrome \
-XCONN_TRANSPORT_PEER="$PWD/../xconn-core/target/debug/examples/transport_peer" \
+XCONN_TRANSPORT_PEER="$PWD/../xconn/target/debug/examples/transport_peer" \
   npm run test:transports
 ```
 

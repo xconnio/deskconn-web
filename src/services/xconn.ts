@@ -12,14 +12,14 @@ import {
   type Serializer,
   type Result,
   type RPCStream,
-} from '@xconnio/core'
+} from '@xconnio/xconn'
 export {
   ApplicationError,
   CBORSerializer,
   CryptoSignAuthenticator,
   WAMPCRAAuthenticator,
-} from '@xconnio/core'
-export type { ClientAuthenticator } from '@xconnio/core'
+} from '@xconnio/xconn'
+export type { ClientAuthenticator } from '@xconnio/xconn'
 export type WebTransportCertHash = WebTransportHash
 
 type Dictionary = Record<string, unknown>
