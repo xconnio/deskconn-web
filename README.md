@@ -1,90 +1,77 @@
-# .
+# DeskConn Web
 
-This template should help get you started developing with Vue 3 in Vite.
+Browser client for [DeskConn](https://github.com/xconnio/deskconn).
+Access your computers, open terminals, manage files, and use remote apps without
+installing a desktop client.
 
-## Recommended IDE Setup
+Use the hosted app at [web.deskconn.com](https://web.deskconn.com), or connect it
+to your own DeskConn deployment.
 
-[VS Code](https://code.visualstudio.com/) + [Vue (Official)](https://marketplace.visualstudio.com/items?itemName=Vue.volar) (and disable Vetur).
+## Capabilities
 
-## Recommended Browser Setup
+- **Terminals:** open interactive shells on your machines.
+- **Files:** browse, upload, download, and edit remote files.
+- **Apps:** launch machine applications and manifest-based interfaces.
+- **Access management:** manage machine sharing and invitations.
+- **Direct connections:** automatically attempt a peer-to-peer upgrade while the
+  routed connection makes the machine available immediately.
 
-- Chromium-based browsers (Chrome, Edge, Brave, etc.):
-  - [Vue.js devtools](https://chromewebstore.google.com/detail/vuejs-devtools/nhdogjmejiglipccpnnnanhbledajbpd) 
-  - [Turn on Custom Object Formatter in Chrome DevTools](http://bit.ly/object-formatters)
-- Firefox:
-  - [Vue.js devtools](https://addons.mozilla.org/en-US/firefox/addon/vue-js-devtools/)
-  - [Turn on Custom Object Formatter in Firefox DevTools](https://fxdx.dev/firefox-devtools-custom-object-formatters/)
+## How it connects
 
-## Type Support for `.vue` Imports in TS
+Built with Vue, TypeScript, and [XConn](https://github.com/xconnio/xconn), the app
+uses browser networking and a shared Rust/WASM protocol engine.
 
-TypeScript cannot handle type information for `.vue` imports by default, so we replace the `tsc` CLI with `vue-tsc` for type checking. In editors, we need [Volar](https://marketplace.visualstudio.com/items?itemName=Vue.volar) to make the TypeScript language service aware of `.vue` types.
+```mermaid
+flowchart LR
+    B["Browser"]
+    H["DeskConn Hub<br/>Relay router"]
+    D["Machine daemon"]
 
-## Customize configuration
+    B <-->|"Routed connection"| H
+    H <--> D
+    B <-->|"Automatic direct upgrade"| D
+```
 
-See [Vite Configuration Reference](https://vite.dev/config/).
+The routed path uses WebTransport; direct connections currently use WebRTC.
+If the direct attempt fails, the app stays routed. If an established direct
+session drops, it disconnects and a new connection starts routed again.
 
-## Project Setup
+A browser with WebTransport support is required. For local certificates and
+self-hosting configuration, see [deployment](docs/deployment.md).
 
-The app installs `@xconnio/xconn` from npm, including its compiled WASM.
-A Core source checkout and Rust toolchain are not needed to build the app.
+## Local development
+
+Use Node.js 22.22.2+, 24.15.0+, or 26+ within the supported ranges in
+[package.json](package.json).
 
 ```sh
 npm ci
-```
-
-### Compile and Hot-Reload for Development
-
-```sh
+cp .env.example .env.local
 npm run dev
 ```
 
-### Type-Check, Compile and Minify for Production
+Configure `.env.local` for your DeskConn Hub. A working account deployment also
+needs [DeskConn Management](https://github.com/xconnio/deskconn-management), its
+database, and the registration identity configured by that deployment. Attach a
+machine with DeskConn to use its tools.
+
+The default connection settings target a local Hub. See the
+[configuration guide](docs/deployment.md#configuration) for each setting.
+
+XConn is installed from npm with its compiled WASM. Normal app builds require
+neither a Rust toolchain nor a sibling XConn checkout.
+
+## Build and checks
 
 ```sh
+npm run type-check
 npm run build
+npm run preview
 ```
 
-### Lint with [ESLint](https://eslint.org/)
+`build` includes type checking and writes the production app to `dist/`.
+`preview` serves that build locally; it is not a production deployment server.
 
-```sh
-npm run lint
-```
-
-## Transport regression tests
-
-The app uses `@xconnio/xconn` for WAMP, codecs, authentication, WebTransport,
-and WebRTC. Browser networking remains browser-native; Rust/WASM owns protocol
-state and codecs. App adapters retain DeskConn RPC call sites and encrypted
-shell/file record formats. Closing a direct session keeps borrowed relay signaling
-alive; closing an owned relay session closes its connection.
-
-Use Node 22.22.2+, 24.15.0+, or 26+ for the transport test runner. Build Core's local peer and run the real Chromium tests:
-
-```sh
-cargo build --manifest-path ../xconn/Cargo.toml --locked \
-  -p xconn-binding-runtime --all-features --example transport_peer
-CHROMIUM_BIN=/path/to/chrome \
-XCONN_TRANSPORT_PEER="$PWD/../xconn/target/debug/examples/transport_peer" \
-  npm run test:transports
-```
-
-The tests use only local endpoints and cover RPC payloads, progressive results,
-shared connection ownership, relay bytes/cancellation, and full-size raw WebRTC packets.
-`npm run build` also verifies TypeScript and emits the Core WASM as a Vite asset.
-
-### DeskConn feature interoperability
-
-File transfers and terminal tabs use RPC-associated streams on the selected
-WAMP session, with identical encryption over WebTransport and WebRTC. Raw
-feature data channels and the old relay routing header are no longer used.
-
-Build `tests/client-peer` in the migrated DeskConn checkout with its native SDK
-installed, then run the actual backend feature tests:
-
-```sh
-DESKCONN_STREAM_PEER=/path/to/deskconn-client-peer \
-CHROMIUM_BIN=/path/to/chrome npm run test:transports
-```
-
-This covers multi-megabyte encrypted uploads/downloads, concurrent shells,
-empty reads, missing files, cancellation and cleanup across the yamux bridge.
+Use `npx eslint .` for a read-only lint check. `npm run lint` applies fixes.
+See [testing](docs/testing.md) for browser transport and backend interoperability
+tests, and [deployment](docs/deployment.md) for Docker and runtime configuration.
