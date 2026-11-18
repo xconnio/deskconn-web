@@ -1,11 +1,12 @@
 # DeskConn Web
 
-Browser client for [DeskConn](https://github.com/xconnio/deskconn).
-Access your computers, open terminals, manage files, and use remote apps without
-installing a desktop client.
+Browser and desktop client for [DeskConn](https://github.com/xconnio/deskconn).
+Access your computers, open terminals, manage files, and use remote apps from a
+browser or the [desktop app](#desktop-app) for Linux, macOS, and Windows.
 
-Use the hosted app at [web.deskconn.com](https://web.deskconn.com), or connect it
-to your own DeskConn deployment.
+Use the hosted app at [web.deskconn.com](https://web.deskconn.com), download the
+desktop app from [Releases](https://github.com/xconnio/deskconn-web/releases),
+or connect either to your own DeskConn deployment.
 
 ## Capabilities
 
@@ -75,3 +76,15 @@ npm run preview
 Use `npx eslint .` for a read-only lint check. `npm run lint` applies fixes.
 See [testing](docs/testing.md) for browser transport and backend interoperability
 tests, and [deployment](docs/deployment.md) for Docker and runtime configuration.
+
+## Desktop app
+
+The same client is packaged with Electron for Linux, macOS, and Windows.
+Download it from [Releases](https://github.com/xconnio/deskconn-web/releases).
+
+```sh
+make run-desktop     # Vite dev server inside Electron
+make build-desktop   # installers for the current OS in release/
+```
+
+See [desktop](docs/desktop.md) for installation notes and configuration.
