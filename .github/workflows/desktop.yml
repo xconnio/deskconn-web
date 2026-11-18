@@ -1,0 +1,106 @@
+name: Desktop
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  # Manual run = publish a GitHub release v<version>. PRs and pushes only build.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version, without v (for example 0.1.0)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: Set release version
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          [[ "$GITHUB_REF" == refs/heads/main ]] || { echo 'Releases must be built from main' >&2; exit 1; }
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Invalid version: $VERSION" >&2; exit 1; }
+          if git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null; then
+            echo "Tag v$VERSION already exists" >&2; exit 1
+          fi
+          npm version --no-git-tag-version "$VERSION"
+
+      # Windows runners don't ship GNU make.
+      - if: runner.os == 'Windows'
+        run: choco install make -y --no-progress
+
+      - run: npm ci
+
+      # Desktop builds have no runtime config.js host, so the hosted Hub
+      # settings are baked in (same secrets as pages.yml). Users can still
+      # override them via <userData>/config.json.
+      - name: Build and package
+        run: make build-desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false' # ponytail: unsigned; add CSC_LINK/APPLE_ID secrets to sign
+          VITE_REGISTRATION_PRIVATE_KEY: ${{ secrets.VITE_REGISTRATION_PRIVATE_KEY }}
+          VITE_WAMP_WT_URL: ${{ secrets.VITE_WAMP_WT_URL }}
+          VITE_WAMP_WT_CERT_URL: ${{ secrets.VITE_WAMP_WT_CERT_URL }}
+          VITE_WAMP_REALM: ${{ secrets.VITE_WAMP_REALM }}
+          VITE_REGISTRATION_AUTHID: ${{ secrets.VITE_REGISTRATION_AUTHID }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.os }}
+          retention-days: 90
+          path: |
+            release/*.AppImage
+            release/*.deb
+            release/*.dmg
+            release/*.exe
+
+  release:
+    if: github.event_name == 'workflow_dispatch'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: desktop-*
+          path: release
+          merge-multiple: true
+
+      - name: Publish release
+        working-directory: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          sha256sum * > SHA256SUMS
+          gh release create "v$VERSION" * --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "DeskConn Desktop v$VERSION" --generate-notes

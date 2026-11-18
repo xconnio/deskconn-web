@@ -1,6 +1,10 @@
 {
   "name": "deskconn-web-app",
+  "productName": "DeskConn",
   "version": "0.0.0",
+  "description": "DeskConn client",
+  "author": "XConnIO",
+  "main": "electron/main.js",
   "private": true,
   "type": "module",
   "engines": {
@@ -14,13 +18,17 @@
     "type-check": "vue-tsc --build",
     "lint": "eslint . --fix --cache",
     "format": "prettier --write --experimental-cli src/",
-    "test:transports": "node tests/transports.mjs"
+    "test:transports": "node tests/transports.mjs",
+    "electron:start": "electron .",
+    "electron:dev": "run-p -r \"dev -- --strictPort\" \"electron:start -- --dev-url=http://localhost:5173\"",
+    "electron:build": "npm run build && electron-builder --publish never"
   },
   "dependencies": {
     "@noble/ciphers": "^2.4.0",
     "@noble/curves": "^2.4.0",
     "@noble/ed25519": "^3.2.0",
     "@popperjs/core": "^2.11.8",
+    "@xconnio/xconn": "^0.6.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-web-links": "^0.12.0",
     "@xterm/xterm": "^6.0.0",
@@ -34,8 +42,7 @@
     "ssh2": "^1.17.0",
     "vue": "^3.5.44",
     "vue-router": "^5.4.0",
-    "vue3-otp-input": "^0.5.40",
-    "@xconnio/xconn": "^0.6.0"
+    "vue3-otp-input": "^0.5.40"
   },
   "devDependencies": {
     "@tsconfig/node24": "^24.0.5",
@@ -46,6 +53,8 @@
     "@vue/eslint-config-prettier": "^10.2.0",
     "@vue/eslint-config-typescript": "^14.9.0",
     "@vue/tsconfig": "^0.9.1",
+    "electron": "^45.3.4",
+    "electron-builder": "^26.18.0",
     "eslint": "^10.13.0",
     "eslint-plugin-vue": "~10.11.1",
     "jiti": "^2.7.0",
@@ -56,5 +65,49 @@
     "vite-plugin-vue-devtools": "^8.2.1",
     "vue-eslint-parser": "^10.4.1",
     "vue-tsc": "^3.3.13"
-  }
+  },
+  "build": {
+    "npmRebuild": false,
+    "appId": "io.xconn.deskconn",
+    "directories": {
+      "output": "release",
+      "buildResources": "electron/resources"
+    },
+    "files": [
+      "dist/**",
+      "electron/main.js",
+      "electron/resources/icon.png",
+      "!dist/CNAME",
+      "!node_modules/**"
+    ],
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Network",
+      "icon": "electron/resources/icon.png",
+      "executableName": "deskconn-desktop",
+      "maintainer": "XConnIO <info@xconn.io>",
+      "syncDesktopName": true
+    },
+    "mac": {
+      "target": {
+        "target": "dmg",
+        "arch": [
+          "x64",
+          "arm64"
+        ]
+      },
+      "category": "public.app-category.utilities"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "deb": {
+      "packageName": "deskconn-desktop"
+    },
+    "artifactName": "deskconn-desktop-${version}-${os}-${arch}.${ext}"
+  },
+  "desktopName": "deskconn-desktop.desktop"
 }

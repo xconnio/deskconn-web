@@ -10,6 +10,12 @@ build:
 run:
 	npm run dev
 
+run-desktop:
+	npm run electron:dev
+
+build-desktop:
+	npm run electron:build
+
 dev-local:
 	VITE_WAMP_WT_URL=https://localhost:8082/wamp \
 	VITE_WAMP_WT_CERT_URL=http://localhost:8083/wt-cert-hash \
@@ -29,7 +35,7 @@ dev-local-mkcert:
 	npm run dev
 
 clean:
-	rm -rf dist/ node_modules/
+	rm -rf dist/ release/ node_modules/
 
 DOCKER_BUILD := docker buildx build --build-arg VITE_REGISTRATION_PRIVATE_KEY -t $(IMAGE):$(VERSION) -t $(IMAGE):latest
 
