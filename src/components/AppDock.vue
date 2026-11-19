@@ -3,7 +3,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import type { AppWindow } from '@/composables/useWindowManager'
 import { requestMachinesPicker } from '@/router/index'
-import { openLauncher, openWindowsOverview } from '@/router/navigation'
+import { openLauncher, openWindowsOverview, slideToMachine } from '@/router/navigation'
 import { useAccountPanelStore } from '@/stores/accountPanel'
 import { useSessionCacheStore } from '@/stores/sessionCache'
 import { useSettingsStore } from '@/stores/settings'
@@ -90,7 +90,7 @@ function onMachinesWheel(e: WheelEvent) {
   if (!dir || realms.length < 2) return
   hideTooltip()
   const next = cycle(realms, realms.indexOf(props.realm), dir)
-  if (next) openLauncher(next)
+  if (next) slideToMachine(next, dir)
 }
 
 // Wheel on empty dock space acts like wheel over Machines; icons handle their own.

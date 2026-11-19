@@ -3,7 +3,7 @@ import { ref, onMounted, onUnmounted, computed, watch, nextTick, markRaw, shallo
 import { type Session } from '@/services/xconn'
 import type { FileEntry } from '@/types'
 import { requestMachinesPicker } from '@/router/index'
-import { openLauncher } from '@/router/navigation'
+import { openLauncher, slideToMachine } from '@/router/navigation'
 import type { AppWindow, CloseableWindowInstance, SavedWindow } from '@/composables/useWindowManager'
 
 import { useMachinesStore } from '@/stores/machines'
@@ -370,8 +370,9 @@ function onSwipeEnd(e: TouchEvent) {
   swipeStart = null
   if (Math.abs(dx) < SWIPE_PX || Math.abs(dx) < Math.abs(dy) * 1.5) return
   const realms = machinesStore.desktops.map((d) => d.realm)
-  const next = realms[realms.indexOf(props.realm) + (dx < 0 ? 1 : -1)]
-  if (next) openLauncher(next)
+  const dir = dx < 0 ? 1 : -1
+  const next = realms[realms.indexOf(props.realm) + dir]
+  if (next) slideToMachine(next, dir)
 }
 
 // Vertical docks are awkward on narrow screens — always use the bottom dock there.
