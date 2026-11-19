@@ -364,7 +364,7 @@ onUnmounted(() => {
 }
 
 /* Rendered inside the titlebar's "Menu" dropdown (see floatingWindowMenuKey),
-   above the built-in "Full screen" item — not the titlebar strip itself. */
+   not the titlebar strip itself. */
 .sc-zoom-group {
   display: flex;
   align-items: center;
