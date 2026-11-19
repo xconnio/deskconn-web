@@ -60,10 +60,6 @@ const menuOpen = ref(false)
 const menuBtnRef = ref<HTMLElement | null>(null)
 const menuDropdownRef = ref<HTMLElement | null>(null)
 
-// True fullscreen (Fullscreen API) covers the whole physical screen, including
-// the browser's own chrome — not just "maximized", which stays within the page.
-const isFullscreen = ref(false)
-
 function toggleMenu() {
   menuOpen.value = !menuOpen.value
 }
@@ -74,7 +70,7 @@ function captureRect(): DOMRect | null {
 
 // GNOME/Ubuntu-style morph: left/top/width/height never transition directly —
 // animating those forces the browser to reflow every frame, which is what
-// made maximize/fullscreen look jerky, especially over heavy embedded content
+// made maximize look jerky, especially over heavy embedded content
 // like the terminal. Instead, bounds snap instantly, and the in-between
 // motion is faked with a transform (translate + scale) computed from the old
 // rect — transform is compositor-only, so it stays smooth regardless of
@@ -151,36 +147,11 @@ function playOpenFromDock() {
   el.style.opacity = ''
 }
 
-async function toggleFullscreen() {
-  menuOpen.value = false
-  if (document.fullscreenElement === rootEl.value) {
-    await document.exitFullscreen()
-  } else {
-    await rootEl.value?.requestFullscreen?.()
-  }
-}
-
-// Covers Esc too (exits fullscreen without going through toggleFullscreen) —
-// the rect is captured synchronously, before isFullscreen flips, so it holds
-// whichever state (fullscreen or windowed) is about to be left.
-function onFullscreenChange() {
-  const before = captureRect()
-  isFullscreen.value = document.fullscreenElement === rootEl.value
-  nextTick(() => { if (before) playFlip(before) })
-}
-
-// Minimizing/maximizing while fullscreen would be invisible — the Fullscreen
-// API only ever paints the fullscreen element's own subtree, so an opacity-0
-// (minimized) or resized-but-still-fullscreen (maximized) window would just
-// look like the screen went blank with no way back. Drop out of fullscreen
-// first so the action is actually visible.
-async function requestMinimize() {
-  if (isFullscreen.value) await document.exitFullscreen()
+function requestMinimize() {
   emit('minimize')
 }
 
 async function requestToggleMaximize() {
-  if (isFullscreen.value) await document.exitFullscreen()
   const before = captureRect()
   emit('toggle-maximize')
   await nextTick()
@@ -208,13 +179,11 @@ function onWindowBlur() {
 
 onMounted(() => {
   playOpenFromDock()
-  document.addEventListener('fullscreenchange', onFullscreenChange)
   window.addEventListener('click', onWindowClickForMenu, true)
   window.addEventListener('blur', onWindowBlur)
 })
 onUnmounted(() => {
   clearTimeout(dockMorphTimer)
-  document.removeEventListener('fullscreenchange', onFullscreenChange)
   window.removeEventListener('click', onWindowClickForMenu, true)
   window.removeEventListener('blur', onWindowBlur)
   // A drag/resize in progress registers its listeners on window, not this
@@ -260,7 +229,7 @@ function startDrag(e: PointerEvent) {
   // Titlebar isn't a focusable element, but the browser's default pointerdown
   // action still shifts focus to it (blurring whatever had it, e.g. the terminal).
   e.preventDefault()
-  if (props.mobile || isFullscreen.value) return
+  if (props.mobile) return
 
   emit('focus')
 
@@ -425,7 +394,7 @@ function findScrollerAt(x: number, y: number) {
 
 // The scroller an event in the edge strip should drive, if any.
 function edgeScrollerFor(e: MouseEvent) {
-  if (!props.maximized || props.mobile || isFullscreen.value) return null
+  if (!props.maximized || props.mobile) return null
   const rect = rootEl.value!.getBoundingClientRect()
   if (e.clientX < rect.right - EDGE_SCROLL_STRIP) return null
   // Walk inward from the edge: a scroller can be a narrow strip right at the
@@ -527,7 +496,7 @@ function beginDrag(startX: number, startY: number, originX: number, originY: num
 }
 
 function startResize(e: PointerEvent, dir: string) {
-  if (props.mobile || props.maximized || isFullscreen.value) return
+  if (props.mobile || props.maximized) return
   e.stopPropagation()
   emit('focus')
 
@@ -606,7 +575,7 @@ function startResize(e: PointerEvent, dir: string) {
   <div
     ref="rootEl"
     class="floating-window"
-    :class="{ 'is-mobile': mobile, 'is-focused': focused, 'is-minimized': minimized, 'is-maximized': maximized, 'is-dark-titlebar': darkTitlebar, 'is-interacting': interacting, 'is-fullscreen': isFullscreen, 'is-dock-morph': dockMorph }"
+    :class="{ 'is-mobile': mobile, 'is-focused': focused, 'is-minimized': minimized, 'is-maximized': maximized, 'is-dark-titlebar': darkTitlebar, 'is-interacting': interacting, 'is-dock-morph': dockMorph }"
     :inert="minimized"
     :style="mobile ? { zIndex, bottom: `${insetBottom ?? 0}px` } : {
       left: x + 'px',
@@ -638,7 +607,7 @@ function startResize(e: PointerEvent, dir: string) {
       ></div>
       <div ref="actionsHostEl" class="fwin-actions-host"></div>
       <div class="fwin-controls">
-        <button ref="menuBtnRef" class="fwin-btn" title="Menu" @mousedown.prevent @click.stop="toggleMenu">
+        <button ref="menuBtnRef" class="fwin-btn fwin-menu-btn" title="Menu" @mousedown.prevent @click.stop="toggleMenu">
           <i class="bi" :class="mobile ? 'bi-three-dots-vertical' : 'bi-list'"></i>
         </button>
         <button v-if="!mobile" class="fwin-btn" title="Minimize" @mousedown.prevent @click="requestMinimize">
@@ -652,16 +621,9 @@ function startResize(e: PointerEvent, dir: string) {
         </button>
       </div>
 
-      <!-- A plain descendant of .floating-window, not teleported: while this
-           window is the Fullscreen API's fullscreen element, the browser only
-           paints that element's own subtree, so anything teleported to
-           <body> (a sibling, not a descendant) would be invisible/unclickable. -->
+      <!-- Filled only by apps that teleport their own items in (floatingWindowMenuKey). -->
       <div v-show="menuOpen" ref="menuDropdownRef" class="fwin-menu" @click.stop>
         <div ref="menuExtraHostEl" class="fwin-menu-extra"></div>
-        <button class="fwin-menu-item" @click="toggleFullscreen">
-          <i class="bi" :class="isFullscreen ? 'bi-arrows-angle-contract' : 'bi-arrows-angle-expand'"></i>
-          {{ isFullscreen ? 'Exit full screen' : 'Full screen' }}
-        </button>
       </div>
     </div>
 
@@ -669,7 +631,7 @@ function startResize(e: PointerEvent, dir: string) {
       <slot />
     </div>
 
-    <template v-if="!mobile && !maximized && !isFullscreen">
+    <template v-if="!mobile && !maximized">
       <div class="fwin-resize fwin-resize-n" @pointerdown="startResize($event, 'n')"></div>
       <div class="fwin-resize fwin-resize-s" @pointerdown="startResize($event, 's')"></div>
       <div class="fwin-resize fwin-resize-e" @pointerdown="startResize($event, 'e')"></div>
@@ -695,7 +657,7 @@ function startResize(e: PointerEvent, dir: string) {
   min-width: 280px;
   min-height: 200px;
   /* left/top/width/height are never transitioned — animating those forces a
-     browser reflow every frame (the source of the maximize/fullscreen jerk).
+     browser reflow every frame (the source of the maximize jerk).
      The morph is faked with transform instead — see playFlip. */
   transition: opacity 0.15s ease, transform 0.22s cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
@@ -752,20 +714,6 @@ function startResize(e: PointerEvent, dir: string) {
      covered by AppDock's nav drawing on top of it. */
   inset: 0;
   border: none;
-}
-
-/* Fullscreen API renders this element with no other page content around it,
-   but doesn't itself resize the box — it keeps whatever x/y/width/height it
-   already had (maximized, floating, or mobile), so pin it to the screen. */
-.floating-window.is-fullscreen {
-  position: fixed !important;
-  inset: 0 !important;
-  left: 0 !important;
-  top: 0 !important;
-  width: 100% !important;
-  height: 100% !important;
-  border: none;
-  border-radius: 0;
 }
 
 .fwin-titlebar {
@@ -919,35 +867,9 @@ function startResize(e: PointerEvent, dir: string) {
   z-index: 20;
 }
 
-.fwin-menu-item {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  width: 100%;
-  border: none;
-  background: transparent;
-  border-radius: 6px;
-  padding: 0.4rem 0.5rem;
-  font-family: inherit;
-  font-size: 0.8rem;
-  font-weight: 500;
-  color: #334155;
-  cursor: pointer;
-  text-align: left;
-}
-
-.fwin-menu-item:hover {
-  background: #eef2f6;
-}
-
-.fwin-menu-extra:empty {
+/* No menu button when no app item was teleported into the menu. */
+.fwin-titlebar:has(.fwin-menu-extra:empty) .fwin-menu-btn {
   display: none;
-}
-
-.fwin-menu-extra:not(:empty) {
-  padding-bottom: 0.3rem;
-  margin-bottom: 0.3rem;
-  border-bottom: 1px solid #eef2f6;
 }
 
 .fwin-btn-close:hover {
@@ -1041,11 +963,6 @@ function startResize(e: PointerEvent, dir: string) {
 .is-mobile .fwin-menu {
   top: 44px;
   right: 0.4rem;
-}
-
-.is-mobile .fwin-menu-item {
-  padding: 0.65rem 0.7rem;
-  font-size: 0.9rem;
 }
 
 .fwin-body {

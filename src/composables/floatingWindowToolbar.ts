@@ -7,8 +7,8 @@ export const floatingWindowToolbarKey: InjectionKey<Ref<HTMLElement | null>> = S
  * (minimize/maximize/close), independent of the full toolbar titlebar above. */
 export const floatingWindowActionsKey: InjectionKey<Ref<HTMLElement | null>> = Symbol('floatingWindowActionsHost')
 
-/** Teleport target inside the titlebar's "Menu" (hamburger) dropdown, above the
- * built-in "Full screen" item — for app-specific menu content (see ScreenshotPanel). */
+/** Teleport target inside the titlebar's "Menu" (hamburger) dropdown — for
+ * app-specific menu content (see ScreenshotPanel). The button only shows when filled. */
 export const floatingWindowMenuKey: InjectionKey<Ref<HTMLElement | null>> = Symbol('floatingWindowMenuHost')
 
 /** True while the window renders in its phone layout (see FloatingWindow.vue's
