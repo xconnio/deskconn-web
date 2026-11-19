@@ -1,7 +1,7 @@
 {
   "name": "deskconn-web-app",
   "productName": "DeskConn",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "DeskConn client",
   "author": "XConnIO",
   "main": "electron/main.js",
