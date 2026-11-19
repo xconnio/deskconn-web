@@ -46,7 +46,7 @@ async function serve(request) {
   const res = await net.fetch(pathToFileURL(file).toString()).catch(() => null)
   if (res?.ok) return res
   // History-mode router: everything outside /assets/ gets the SPA shell. Not an
-  // extension check: realm names have dots (/machine/io.xconn.deskconn.standalone).
+  // extension check: realm names have dots (/machine/com.deskconn.standalone).
   if (pathname.startsWith('/assets/')) return new Response('Not found', { status: 404 })
   return net.fetch(pathToFileURL(path.join(DIST, 'index.html')).toString())
 }

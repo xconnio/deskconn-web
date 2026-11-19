@@ -13,7 +13,7 @@ For Vite development, copy `.env.example` to `.env.local` and edit its values.
 | --- | --- |
 | `VITE_WAMP_WT_URL` | Hub WebTransport endpoint; defaults to `https://localhost:8082/wamp` |
 | `VITE_WAMP_WT_CERT_URL` | Certificate-hash endpoint for a self-signed Hub certificate; leave empty for a certificate trusted by the browser |
-| `VITE_WAMP_REALM` | Shared realm; defaults to `io.xconn.deskconn` |
+| `VITE_WAMP_REALM` | Shared realm; defaults to `com.deskconn` |
 | `VITE_REGISTRATION_AUTHID` | Registration identity; defaults to `deskconn-web-app` |
 | `VITE_REGISTRATION_PRIVATE_KEY` | Key matching the deployment's registration identity; embedded at build time |
 
