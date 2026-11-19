@@ -15,4 +15,4 @@ export const REGISTRATION_PRIVATE_KEY =
   import.meta.env.VITE_REGISTRATION_PRIVATE_KEY ?? CONFIG_DEFAULTS.REGISTRATION_PRIVATE_KEY
 
 // Realm deskconnd serves in standalone mode (deskconnd --standalone), see deskconn's common.StandaloneRealm.
-export const STANDALONE_REALM = 'io.xconn.deskconn.standalone'
+export const STANDALONE_REALM = 'com.deskconn.standalone'
