@@ -93,6 +93,13 @@ function onMachinesWheel(e: WheelEvent) {
   if (next) openLauncher(next)
 }
 
+// Wheel on empty dock space acts like wheel over Machines; icons handle their own.
+function onDockWheel(e: WheelEvent) {
+  if (props.mobile || (e.target as Element).closest('.dock-icon, .dock-popover, .dock-machine')) return
+  e.preventDefault()
+  onMachinesWheel(e)
+}
+
 function onAppsWheel(e: WheelEvent) {
   const dir = wheelStep(e)
   if (!dir || props.windows.length === 0) return
@@ -427,7 +434,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div ref="dockRootRef" class="dock" :class="mobile ? 'dock-bottom dock-mobile-nav' : `dock-${position}`">
+  <div ref="dockRootRef" class="dock" :class="mobile ? 'dock-bottom dock-mobile-nav' : `dock-${position}`" @wheel="onDockWheel">
     <div class="dock-inner">
       <template v-if="!mobile">
         <!-- Navigating away skips mouseleave, so clear the tooltip on click too. -->
