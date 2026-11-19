@@ -420,7 +420,7 @@ export async function openRPCFeatureStream(
 ): Promise<RPCFeatureStream> {
   if (session.realm() !== realm) throw new Error('Stream realm does not match the WAMP session')
   if (signal?.aborted) throw new Error('cancelled')
-  const procedure = op === 'shell' ? 'io.xconn.deskconn.shell.stream' : `io.xconn.deskconn.file.stream.${op}`
+  const procedure = op === 'shell' ? 'com.deskconn.shell.stream' : `com.deskconn.file.stream.${op}`
   const raw = await session.openRPCStream(procedure, op === 'init' || op === 'write')
   if (signal?.aborted) {
     closeFeatureStream(raw)

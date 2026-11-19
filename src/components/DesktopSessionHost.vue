@@ -236,7 +236,7 @@ const isConnecting = ref(true)
 // same full-screen treatment.
 const isDisconnected = ref(false)
 
-// From io.xconn.deskconn.device.is_desktop — false on a headless
+// From com.deskconn.device.is_desktop — false on a headless
 // machine, which never registers display-only RPCs (screenshot, brightness,
 // wallpaper) on the deskconnd side. Defaults true so the icon isn't hidden
 // then flashed back in on every ordinary desktop.
@@ -257,13 +257,13 @@ async function connectSession(): Promise<boolean> {
   try {
     const session = await sessionCacheStore.acquire(props.realm)
     if (!session) return false
-    await session.call('io.xconn.deskconn.ping')
+    await session.call('com.deskconn.ping')
 
     // Older deskconnd builds don't register this RPC at all — NoSuchProcedure
     // there isn't "not a desktop", it's "unknown", so assume desktop rather
     // than hiding screenshot.
     try {
-      const isDesktopResult = await session.call('io.xconn.deskconn.device.is_desktop')
+      const isDesktopResult = await session.call('com.deskconn.device.is_desktop')
       isDesktop.value = !!isDesktopResult.args?.[0]
     } catch {
       isDesktop.value = true

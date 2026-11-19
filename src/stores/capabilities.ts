@@ -4,8 +4,8 @@ import { defineStore } from 'pinia'
 import { useSessionCacheStore } from '@/stores/sessionCache'
 import { formatDesktopError } from '@/utils/desktopError'
 
-const PROCEDURE_LIST = 'io.xconn.deskconn.capabilities.list'
-const PROCEDURE_SET = 'io.xconn.deskconn.admin.capabilities.set'
+const PROCEDURE_LIST = 'com.deskconn.capabilities.list'
+const PROCEDURE_SET = 'com.deskconn.admin.capabilities.set'
 
 /** One app the machine's owner/admin can turn on or off (deskconnd's capabilities.list). */
 export interface Capability {

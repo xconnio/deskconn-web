@@ -9,7 +9,7 @@ export const authService = {
     const s = await this.getRegistrarSession()
 
     try {
-      const result = await s.call('io.xconn.deskconn.account.create', [
+      const result = await s.call('com.deskconn.account.create', [
         form.username,
         form.name,
         form.password,
@@ -34,7 +34,7 @@ export const authService = {
     }
 
     try {
-      const result = await s.call('io.xconn.deskconn.account.verify', [username, code, publicKey])
+      const result = await s.call('com.deskconn.account.verify', [username, code, publicKey])
       return result
     } catch (err) {
       throw err
@@ -51,14 +51,14 @@ export const authService = {
     if (!s) {
       s = await this.getRegistrarSession()
     }
-    const result = await s.call('io.xconn.deskconn.account.otp.resend', [username])
+    const result = await s.call('com.deskconn.account.otp.resend', [username])
     return { result, session: s }
   },
 
   async requestLoginOtp(email: string, password: string) {
     const s = await wampService.connectWithCRA(email, password)
     try {
-      const result = await s.call('io.xconn.deskconn.account.login', [email])
+      const result = await s.call('com.deskconn.account.login', [email])
       return { result, session: s }
     } catch (err) {
       await s.leave().catch(console.error)
@@ -77,21 +77,21 @@ export const authService = {
     if (!s) {
       s = await wampService.connectWithCRA(email, password)
     }
-    return s.call('io.xconn.deskconn.account.login.verify', [email, code, publicKey])
+    return s.call('com.deskconn.account.login.verify', [email, code, publicKey])
   },
 
   async deletePrincipal(session: WampSession, publicKey: string) {
-    return session.call('io.xconn.deskconn.account.principal.delete', [publicKey])
+    return session.call('com.deskconn.account.principal.delete', [publicKey])
   },
 
   async rotatePrincipal(session: WampSession, oldPublicKey: string, newPublicKey: string) {
-    return session.call('io.xconn.deskconn.account.principal.rotate', [oldPublicKey, newPublicKey])
+    return session.call('com.deskconn.account.principal.rotate', [oldPublicKey, newPublicKey])
   },
 
   async forgotPassword(email: string) {
     const s = await this.getRegistrarSession()
     try {
-      const result = await s.call('io.xconn.deskconn.account.password.forget', [email])
+      const result = await s.call('com.deskconn.account.password.forget', [email])
       return { result, session: s }
     } catch (err) {
       // Close session if it was just for this call?
@@ -109,19 +109,19 @@ export const authService = {
     }
     const args = [email, password, otp]
 
-    const result = await s.call('io.xconn.deskconn.account.password.reset', args)
+    const result = await s.call('com.deskconn.account.password.reset', args)
     return { result, session: s }
   },
 
   async registerDevice(session: WampSession, deviceID: string, publicKey: string) {
-    return session.call('io.xconn.deskconn.device.create', [deviceID, publicKey], {
+    return session.call('com.deskconn.device.create', [deviceID, publicKey], {
       name: 'Browser Interface',
     })
   },
 
   async autoLogin(authId: string, privateKey: string) {
     const s = await wampService.connectWithCryptosign(authId, privateKey, WAMP_REALM)
-    const result = await s.call('io.xconn.deskconn.account.get')
+    const result = await s.call('com.deskconn.account.get')
     return { session: s, result }
   },
 
@@ -130,50 +130,50 @@ export const authService = {
     if (password) {
       kwargs.password = password
     }
-    return await session.call('io.xconn.deskconn.account.update', [], kwargs)
+    return await session.call('com.deskconn.account.update', [], kwargs)
   },
   async listDesktops(session: WampSession) {
-    return session.call('io.xconn.deskconn.desktop.list')
+    return session.call('com.deskconn.desktop.list')
   },
 
   async listDesktopUserAccesses(session: WampSession, desktopId: string) {
-    return session.call('io.xconn.deskconn.desktop.access.user.list', [desktopId])
+    return session.call('com.deskconn.desktop.access.user.list', [desktopId])
   },
 
   async setUserAccess(session: WampSession, desktopId: string, userId: string, role: string) {
-    return session.call('io.xconn.deskconn.desktop.access.user.set', [desktopId, userId, role])
+    return session.call('com.deskconn.desktop.access.user.set', [desktopId, userId, role])
   },
 
   async revokeUserAccess(session: WampSession, accessId: string) {
-    return session.call('io.xconn.deskconn.desktop.access.user.revoke', [accessId])
+    return session.call('com.deskconn.desktop.access.user.revoke', [accessId])
   },
 
   async updateUserAccessRole(session: WampSession, accessId: string, role: string) {
-    return session.call('io.xconn.deskconn.desktop.access.user.update', [accessId, role])
+    return session.call('com.deskconn.desktop.access.user.update', [accessId, role])
   },
 
   async inviteUserToDesktop(session: WampSession, desktopId: string, email: string, role: string) {
-    return session.call('io.xconn.deskconn.desktop.invitation.user.create', [desktopId, email, role])
+    return session.call('com.deskconn.desktop.invitation.user.create', [desktopId, email, role])
   },
 
   async listDesktopInvitesInbox(session: WampSession) {
-    return session.call('io.xconn.deskconn.desktop.invitation.inbox.list')
+    return session.call('com.deskconn.desktop.invitation.inbox.list')
   },
 
   async listDesktopInvitesOutbox(session: WampSession) {
-    return session.call('io.xconn.deskconn.desktop.invitation.outbox.list')
+    return session.call('com.deskconn.desktop.invitation.outbox.list')
   },
 
   async cancelDesktopInvite(session: WampSession, invitationId: string) {
-    return session.call('io.xconn.deskconn.desktop.invitation.user.cancel', [invitationId])
+    return session.call('com.deskconn.desktop.invitation.user.cancel', [invitationId])
   },
 
   async getMyDesktopAccess(session: WampSession, desktopId: string) {
-    return session.call('io.xconn.deskconn.desktop.access.user.me', [desktopId])
+    return session.call('com.deskconn.desktop.access.user.me', [desktopId])
   },
 
   async respondToDesktopInvite(session: WampSession, invitationId: string, status: 'accepted' | 'rejected') {
-    return session.call('io.xconn.deskconn.desktop.invitation.respond', [invitationId, status])
+    return session.call('com.deskconn.desktop.invitation.respond', [invitationId, status])
   },
 
   async shellDesktop(authId: string, privateKey: string, realm: string) {
@@ -183,9 +183,9 @@ export const authService = {
   // Signals over the already-connected routed session, so direct setup needs no
   // second router connection.
   async shellWebRTCDesktop(authenticator: ClientAuthenticator, realm: string, session: WampSession) {
-    const procedureWebRTCOffer = 'io.xconn.webrtc.offer'
-    const topicAnswererOnCandidate = 'io.xconn.webrtc.answerer.on_candidate'
-    const topicOffererOnCandidate = 'io.xconn.webrtc.offerer.on_candidate'
+    const procedureWebRTCOffer = 'com.deskconn.webrtc.offer'
+    const topicAnswererOnCandidate = 'com.deskconn.webrtc.answerer.on_candidate'
+    const topicOffererOnCandidate = 'com.deskconn.webrtc.offerer.on_candidate'
 
     const iceServers: RTCIceServer[] = [{ urls: ['stun:stun.l.google.com:19302'] }]
 

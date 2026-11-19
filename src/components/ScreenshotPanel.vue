@@ -14,7 +14,7 @@ import { formatDesktopError, isDesktopOfflineError } from '@/utils/desktopError'
 
 const props = defineProps<{ realm: string; focused?: boolean }>()
 
-const procedureScreenshot = 'io.xconn.remotecontrol.screenshot'
+const procedureScreenshot = 'com.deskconn.remotecontrol.screenshot'
 
 const sessionCacheStore = useSessionCacheStore()
 const capabilitiesStore = useCapabilitiesStore()

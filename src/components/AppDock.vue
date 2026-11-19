@@ -28,7 +28,7 @@ const props = defineProps<{
   focusedId: string | null
   position: 'bottom' | 'left' | 'right'
   offline?: boolean
-  /** From io.xconn.deskconn.device.is_desktop — false on a headless
+  /** From com.deskconn.device.is_desktop — false on a headless
    * machine, which never registers the screenshot RPC on the deskconnd side. */
   isDesktop?: boolean
   /** Narrow screens: apps render as desktop icons (see .desktop-icon-grid)

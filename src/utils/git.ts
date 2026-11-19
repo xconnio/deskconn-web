@@ -1,13 +1,13 @@
 /**
- * Client side of `io.xconn.deskconn.git.status` / `.git.original` (see
+ * Client side of `com.deskconn.git.status` / `.git.original` (see
  * filegit.go). Same encrypt/call/decrypt shape as TextEditor.vue's saveFile and
  * EmbeddedDesktopFiles.vue's callFileOperation.
  */
 import type { Session } from '@/services/xconn'
 import { encryptPayload, decryptPayload, type EncryptionKeys } from '@/utils/encryption'
 
-const procedureGitStatus = 'io.xconn.deskconn.git.status'
-const procedureGitOriginal = 'io.xconn.deskconn.git.original'
+const procedureGitStatus = 'com.deskconn.git.status'
+const procedureGitOriginal = 'com.deskconn.git.original'
 
 export type GitFileStatus = 'untracked' | 'added' | 'modified' | 'ignored'
 
