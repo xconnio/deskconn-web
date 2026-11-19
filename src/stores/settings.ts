@@ -26,8 +26,8 @@ function validGradientId(id: string | null | undefined): string {
   return WALLPAPER_GRADIENTS.some((g) => g.id === id) ? id! : ''
 }
 
-const PROCEDURE_MACHINE_SETTINGS_LIST = 'io.xconn.deskconn.settings.list'
-const PROCEDURE_MACHINE_SETTINGS_SAVE = 'io.xconn.deskconn.settings.save'
+const PROCEDURE_MACHINE_SETTINGS_LIST = 'com.deskconn.settings.list'
+const PROCEDURE_MACHINE_SETTINGS_SAVE = 'com.deskconn.settings.save'
 
 function readDockPosition(realm: string): DockPosition {
   const stored = localStorage.getItem(`setting_dock_position_${realm}`)

@@ -82,7 +82,7 @@ async function loadProjects() {
   loading.value = true
   error.value = null
   try {
-    const list = await call<Project[]>(`io.xconn.deskconn.${agent.id}.project.list`)
+    const list = await call<Project[]>(`com.deskconn.${agent.id}.project.list`)
     if (agent.id !== current.value?.id) return
     projects.value = list
     const project = list.find((p) => p.path === selected.value?.path) ?? list[0]
@@ -106,7 +106,7 @@ async function loadSessions(project: Project, loadingFlag = loadingMore) {
   loadingFlag.value = true
   error.value = null
   try {
-    const page = (await call<Session[] | null>(`io.xconn.deskconn.${agent.id}.session.list`, {
+    const page = (await call<Session[] | null>(`com.deskconn.${agent.id}.session.list`, {
       path: project.path, offset: loaded.value, limit: PAGE_SIZE,
     })) ?? []
     if (selected.value?.path !== project.path || agent.id !== current.value?.id) return

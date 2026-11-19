@@ -1,5 +1,5 @@
 /**
- * Shared client for `io.xconn.deskconn.file.browse` — extracted from
+ * Shared client for `com.deskconn.file.browse` — extracted from
  * EmbeddedDesktopFiles.vue so other browse UIs (the text editor's file tree and
  * open/save picker) can reuse the same parsing and pre-pagination protocol
  * fallback without duplicating it.
@@ -8,7 +8,7 @@ import type { Session } from '@/services/xconn'
 import { encryptPayload, decryptPayload, type EncryptionKeys } from '@/utils/encryption'
 import type { FileBrowseResult, FileEntry } from '@/types'
 
-const procedureFileBrowse = 'io.xconn.deskconn.file.browse'
+const procedureFileBrowse = 'com.deskconn.file.browse'
 const DEFAULT_PAGE_SIZE = 100
 
 function getValue(source: Record<string, unknown>, ...keys: string[]) {

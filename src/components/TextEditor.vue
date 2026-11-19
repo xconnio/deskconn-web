@@ -34,7 +34,7 @@ import { splitHighlightedLines } from '@/utils/highlightLines'
 import { computeLineDiff, computeReviewLines, foldReviewLines, type LineDiffMap, type ReviewLine, type ReviewRow } from '@/utils/lineDiff'
 import 'highlight.js/styles/monokai-sublime.css'
 
-const procedureFileEdit = 'io.xconn.deskconn.file.edit'
+const procedureFileEdit = 'com.deskconn.file.edit'
 const MAX_EDIT_SIZE = 10 * 1024 * 1024
 
 type TextEntry = { path: string; name: string; size: number }
