@@ -1286,7 +1286,8 @@ onUnmounted(() => {
 
 <template>
   <div class="embedded-explorer">
-    <nav class="places-sidebar">
+    <!-- Home alone isn't worth a sidebar. -->
+    <nav v-if="places.length" class="places-sidebar">
       <button
         class="place-btn"
         :class="{ 'place-btn--active': activePlace === 'files' && breadcrumbSegments.length === 1 }"
