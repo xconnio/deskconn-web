@@ -22,6 +22,8 @@ import DesktopSettingsPanel from '@/components/DesktopSettingsPanel.vue'
 import FilePreviewModal from '@/components/FilePreviewModal.vue'
 import TextEditor from '@/components/TextEditor.vue'
 import ScreenshotPanel from '@/components/ScreenshotPanel.vue'
+import PortForwardPanel from '@/components/PortForwardPanel.vue'
+import { portForwardingAvailable } from '@/services/portStream'
 import FloatingWindow from '@/components/FloatingWindow.vue'
 import AppDock from '@/components/AppDock.vue'
 import DownloadToast from '@/components/DownloadToast.vue'
@@ -433,6 +435,16 @@ const apps: AppDef[] = [
     height: 560,
   },
   {
+    id: 'ports',
+    label: 'Ports',
+    icon: 'bi-ethernet',
+    iconColor: '#ffffff',
+    iconBg: '#ea580c',
+    width: 600,
+    height: 400,
+    minWidth: 420,
+  },
+  {
     id: 'settings',
     label: 'Settings',
     icon: 'bi-gear',
@@ -495,7 +507,8 @@ const dockApps = computed(() => {
   // Apps the machine's owner/admin turned off (see the Settings app) aren't offered, nor
   // Agents on a machine without any agent installed, which lists none, nor Screenshot
   // while remotecontrol-app (which registers it) isn't running.
-  const list = apps.filter((a) => a.id === 'agents'
+  // Ports needs the desktop app, which can open local sockets.
+  const list = apps.filter((a) => a.id === 'ports' ? portForwardingAvailable : a.id === 'agents'
     ? availableAgents.value.length > 0
     : a.id === 'screenshot'
       ? capabilitiesStore.isListed(props.realm, a.id)
@@ -530,6 +543,7 @@ const appComponents: Record<string, Component> = {
   'video-player': FilePreviewModal,
   'text-editor': TextEditor,
   agents: AgentPanel,
+  ports: PortForwardPanel,
 }
 
 function windowProps(win: { id: string; appId: string; props: Record<string, unknown> }) {

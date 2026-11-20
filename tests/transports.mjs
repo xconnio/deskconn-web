@@ -3,6 +3,7 @@ import { once } from 'node:events'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { createServer as createTCPServer } from 'node:net'
 import { createInterface } from 'node:readline'
 import { setTimeout as delay } from 'node:timers/promises'
 import { createServer } from 'vite'
@@ -15,11 +16,16 @@ const profile = await mkdtemp(join(tmpdir(), 'deskconn-web-test-'))
 let browser
 let vite
 let socket
+let echo
 try {
   const lines = createInterface({ input: fixture.stdout })
   const [line] = await once(lines, 'line')
   lines.close()
   const addresses = JSON.parse(line)
+  // Port forwarding target on the "machine" (this host), for tests/features.ts.
+  echo = createTCPServer((socket) => socket.pipe(socket))
+  await new Promise((resolve) => echo.listen(0, '127.0.0.1', resolve))
+  addresses.echoPort = String(echo.address().port)
   vite = await createServer({ server: { host: '127.0.0.1', port: 0, open: false } })
   await vite.listen()
   const url = `http://127.0.0.1:${vite.httpServer.address().port}`
@@ -86,6 +92,7 @@ try {
   browser?.kill()
   if (browser) await once(browser, 'exit').catch(() => {})
   await vite?.close()
+  echo?.close()
   fixture.stdin.end()
   await once(fixture, 'exit').catch(() => {})
   await rm(profile, { recursive: true, force: true })

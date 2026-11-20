@@ -36,6 +36,20 @@ the app's data directory with any of `WAMP_WT_URL`, `WAMP_WT_CERT_URL`,
 { "WAMP_WT_URL": "https://hub.example.com:8082/wamp" }
 ```
 
+## Port forwarding
+
+The desktop app adds a **Ports** app to each machine (the browser can't open
+local sockets, so it isn't offered there). Each rule is one of:
+
+- **Local → machine**: listens on `localhost:<local port>` on this computer and
+  connects each connection to `localhost:<machine port>` on the machine.
+- **Machine → local**: the machine listens on `<machine port>` (all of its
+  interfaces) and each connection reaches `localhost:<local port>` here.
+
+Rules are saved per machine but start stopped. Running rules stop when the
+machine disconnects or the window reloads; closing the Ports window doesn't stop
+them. Traffic is end-to-end encrypted like terminal and file streams.
+
 ## Development and packaging
 
 ```sh
