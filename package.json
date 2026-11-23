@@ -76,6 +76,7 @@
     "files": [
       "dist/**",
       "electron/main.js",
+      "electron/preload.cjs",
       "electron/resources/icon.png",
       "!dist/CNAME",
       "!node_modules/**"
