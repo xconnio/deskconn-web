@@ -50,6 +50,19 @@ async function loadStatus() {
   }
 }
 
+// git.status reports a wholly ignored/untracked folder once (not each file in
+// it), so anything under one inherits the nearest such folder's status.
+function statusOf(path: string): GitFileStatus | undefined {
+  const own = statusByPath.value.get(path)
+  if (own) return own
+  for (let p = dirName(path); p.length >= props.rootPath.length; p = dirName(p)) {
+    const inherited = statusByPath.value.get(p)
+    if (inherited === 'ignored' || inherited === 'untracked') return inherited
+    if (p === dirName(p)) break
+  }
+  return undefined
+}
+
 async function loadRoot() {
   rootLoading.value = true
   rootError.value = ''
@@ -199,7 +212,7 @@ provide(editorFileTreeActionsKey, {
   isExpanded: (path) => expanded.has(path),
   childrenOf: (path) => childrenByPath.get(path),
   isLoading: (path) => loadingPaths.has(path),
-  statusOf: (path) => statusByPath.value.get(path),
+  statusOf,
   toggleDir,
   openFile: (entry) => emit('open-file', entry),
   openFilePinned: (entry) => emit('open-file-pinned', entry),
