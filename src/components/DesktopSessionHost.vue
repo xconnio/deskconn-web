@@ -901,6 +901,10 @@ onMounted(() => {
       // scaling every window down to nothing, and leave lastContainer alone
       // so the real resize this masks still computes off the last good size.
       if (!launcherBodyRef.value?.clientWidth) return
+      // Teleported into a Machines overview card: that's the card's size, not
+      // the desktop's — measuring it would shrink every window to the card
+      // and zero the size the preview scales from.
+      if (previewTarget.value) return
       captureContainerSize()
       measureDockThickness()
       const container = maximizedContainerSize()
