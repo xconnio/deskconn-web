@@ -496,7 +496,8 @@ function beginDrag(startX: number, startY: number, originX: number, originY: num
 }
 
 function startResize(e: PointerEvent, dir: string) {
-  if (props.mobile || props.maximized) return
+  if (props.mobile || props.maximized || e.button !== 0) return
+  e.preventDefault()
   e.stopPropagation()
   emit('focus')
 
@@ -588,47 +589,49 @@ function startResize(e: PointerEvent, dir: string) {
     @pointerdown.capture="onEdgeScrollPointerDown"
     @wheel.capture="onEdgeScrollWheel"
   >
-    <div class="fwin-titlebar" :class="{ 'fwin-titlebar--dark': darkTitlebar }" @pointerdown="startDrag" @contextmenu.prevent>
-      <!-- Mobile is one app at a time: no minimize/close, just a way back. -->
-      <!-- Back keeps the app running, like a phone; it's closed from the Apps switcher. -->
-      <button v-if="mobile" class="fwin-back" title="Back" aria-label="Back" @click="requestMinimize">
-        <i class="bi bi-chevron-left"></i>
-      </button>
-      <template v-if="!useToolbarTitlebar || mobile">
-        <span class="fwin-icon" :style="{ color: iconColor, background: iconBg }">
-          <i class="bi" :class="icon"></i>
-        </span>
-        <span class="fwin-title">{{ title }}</span>
-      </template>
-      <div
-        ref="toolbarHostEl"
-        class="fwin-toolbar-host"
-        :class="{ 'fwin-toolbar-host--active': useToolbarTitlebar }"
-      ></div>
-      <div ref="actionsHostEl" class="fwin-actions-host"></div>
-      <div class="fwin-controls">
-        <button ref="menuBtnRef" class="fwin-btn fwin-menu-btn" title="Menu" @mousedown.prevent @click.stop="toggleMenu">
-          <i class="bi" :class="mobile ? 'bi-three-dots-vertical' : 'bi-list'"></i>
+    <div class="fwin-content">
+      <div class="fwin-titlebar" :class="{ 'fwin-titlebar--dark': darkTitlebar }" @pointerdown="startDrag" @contextmenu.prevent>
+        <!-- Mobile is one app at a time: no minimize/close, just a way back. -->
+        <!-- Back keeps the app running, like a phone; it's closed from the Apps switcher. -->
+        <button v-if="mobile" class="fwin-back" title="Back" aria-label="Back" @click="requestMinimize">
+          <i class="bi bi-chevron-left"></i>
         </button>
-        <button v-if="!mobile" class="fwin-btn" title="Minimize" @mousedown.prevent @click="requestMinimize">
-          <i class="bi bi-dash-lg"></i>
-        </button>
-        <button v-if="!mobile" class="fwin-btn" :title="maximized ? 'Restore' : 'Maximize'" @mousedown.prevent @click="requestToggleMaximize">
-          <i class="bi" :class="maximized ? 'bi-copy' : 'bi-square'"></i>
-        </button>
-        <button v-if="!mobile" class="fwin-btn fwin-btn-close" title="Close" @mousedown.prevent @click="$emit('close')">
-          <i class="bi bi-x-lg"></i>
-        </button>
+        <template v-if="!useToolbarTitlebar || mobile">
+          <span class="fwin-icon" :style="{ color: iconColor, background: iconBg }">
+            <i class="bi" :class="icon"></i>
+          </span>
+          <span class="fwin-title">{{ title }}</span>
+        </template>
+        <div
+          ref="toolbarHostEl"
+          class="fwin-toolbar-host"
+          :class="{ 'fwin-toolbar-host--active': useToolbarTitlebar }"
+        ></div>
+        <div ref="actionsHostEl" class="fwin-actions-host"></div>
+        <div class="fwin-controls">
+          <button ref="menuBtnRef" class="fwin-btn fwin-menu-btn" title="Menu" @mousedown.prevent @click.stop="toggleMenu">
+            <i class="bi" :class="mobile ? 'bi-three-dots-vertical' : 'bi-list'"></i>
+          </button>
+          <button v-if="!mobile" class="fwin-btn" title="Minimize" @mousedown.prevent @click="requestMinimize">
+            <i class="bi bi-dash-lg"></i>
+          </button>
+          <button v-if="!mobile" class="fwin-btn" :title="maximized ? 'Restore' : 'Maximize'" @mousedown.prevent @click="requestToggleMaximize">
+            <i class="bi" :class="maximized ? 'bi-copy' : 'bi-square'"></i>
+          </button>
+          <button v-if="!mobile" class="fwin-btn fwin-btn-close" title="Close" @mousedown.prevent @click="$emit('close')">
+            <i class="bi bi-x-lg"></i>
+          </button>
+        </div>
+
+        <!-- Filled only by apps that teleport their own items in (floatingWindowMenuKey). -->
+        <div v-show="menuOpen" ref="menuDropdownRef" class="fwin-menu" @click.stop>
+          <div ref="menuExtraHostEl" class="fwin-menu-extra"></div>
+        </div>
       </div>
 
-      <!-- Filled only by apps that teleport their own items in (floatingWindowMenuKey). -->
-      <div v-show="menuOpen" ref="menuDropdownRef" class="fwin-menu" @click.stop>
-        <div ref="menuExtraHostEl" class="fwin-menu-extra"></div>
+      <div class="fwin-body">
+        <slot />
       </div>
-    </div>
-
-    <div class="fwin-body">
-      <slot />
     </div>
 
     <template v-if="!mobile && !maximized">
@@ -646,6 +649,10 @@ function startResize(e: PointerEvent, dir: string) {
 
 <style scoped>
 .floating-window {
+  --resize-outset: -7px;
+  --resize-edge: 12px;
+  --resize-corner: 19px;
+  --resize-corner-inset: calc(var(--resize-corner) + var(--resize-outset));
   position: absolute;
   display: flex;
   flex-direction: column;
@@ -656,13 +663,22 @@ function startResize(e: PointerEvent, dir: string) {
   box-shadow:
     0 2px 8px rgba(0, 0, 0, 0.26),
     0 12px 30px rgba(0, 0, 0, 0.28);
-  overflow: hidden;
   min-width: 280px;
   min-height: 200px;
   /* left/top/width/height are never transitioned — animating those forces a
      browser reflow every frame (the source of the maximize jerk).
      The morph is faked with transform instead — see playFlip. */
   transition: opacity 0.15s ease, transform 0.22s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+/* Clip the visible surface without clipping the invisible resize handles. */
+.fwin-content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  border-radius: inherit;
+  overflow: hidden;
 }
 
 /* Dragging/resizing must track the pointer exactly — a transition here would lag. */
@@ -983,58 +999,45 @@ function startResize(e: PointerEvent, dir: string) {
 
 .fwin-resize-n,
 .fwin-resize-s {
-  left: 10px;
-  right: 10px;
-  height: 6px;
+  left: var(--resize-corner-inset);
+  right: var(--resize-corner-inset);
+  height: var(--resize-edge);
   cursor: ns-resize;
 }
 
-.fwin-resize-n { top: -3px; }
-.fwin-resize-s { bottom: -3px; }
+.fwin-resize-n { top: var(--resize-outset); }
+.fwin-resize-s { bottom: var(--resize-outset); }
 
 .fwin-resize-e,
 .fwin-resize-w {
-  top: 10px;
-  bottom: 10px;
-  width: 6px;
+  top: var(--resize-corner-inset);
+  bottom: var(--resize-corner-inset);
+  width: var(--resize-edge);
   cursor: ew-resize;
 }
 
-.fwin-resize-e { right: -3px; }
-.fwin-resize-w { left: -3px; }
+.fwin-resize-e { right: var(--resize-outset); }
+.fwin-resize-w { left: var(--resize-outset); }
 
 .fwin-resize-ne,
 .fwin-resize-nw,
 .fwin-resize-se,
 .fwin-resize-sw {
-  width: 14px;
-  height: 14px;
+  width: var(--resize-corner);
+  height: var(--resize-corner);
 }
 
-.fwin-resize-ne { top: -3px; right: -3px; cursor: nesw-resize; }
-.fwin-resize-nw { top: -3px; left: -3px; cursor: nwse-resize; }
-.fwin-resize-se { bottom: -3px; right: -3px; cursor: nwse-resize; }
-.fwin-resize-sw { bottom: -3px; left: -3px; cursor: nesw-resize; }
+.fwin-resize-ne { top: var(--resize-outset); right: var(--resize-outset); cursor: nesw-resize; }
+.fwin-resize-nw { top: var(--resize-outset); left: var(--resize-outset); cursor: nwse-resize; }
+.fwin-resize-se { bottom: var(--resize-outset); right: var(--resize-outset); cursor: nwse-resize; }
+.fwin-resize-sw { bottom: var(--resize-outset); left: var(--resize-outset); cursor: nesw-resize; }
 
-/* Finger-sized grab areas on touch screens; they sit mostly outside the
-   window so they don't swallow taps on its content. */
+/* Extend touch handles outward to leave more room for app content. */
 @media (pointer: coarse) {
-  .fwin-resize-n,
-  .fwin-resize-s { height: 16px; }
-  .fwin-resize-e,
-  .fwin-resize-w { width: 16px; }
-  .fwin-resize-n { top: -12px; }
-  .fwin-resize-s { bottom: -12px; }
-  .fwin-resize-e { right: -12px; }
-  .fwin-resize-w { left: -12px; }
-
-  .fwin-resize-ne,
-  .fwin-resize-nw,
-  .fwin-resize-se,
-  .fwin-resize-sw { width: 28px; height: 28px; }
-  .fwin-resize-ne { top: -12px; right: -12px; }
-  .fwin-resize-nw { top: -12px; left: -12px; }
-  .fwin-resize-se { bottom: -12px; right: -12px; }
-  .fwin-resize-sw { bottom: -12px; left: -12px; }
+  .floating-window {
+    --resize-outset: -12px;
+    --resize-edge: 18px;
+    --resize-corner: 28px;
+  }
 }
 </style>
