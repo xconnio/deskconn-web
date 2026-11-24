@@ -653,7 +653,9 @@ function startResize(e: PointerEvent, dir: string) {
   background-clip: padding-box;
   border-radius: 6px;
   border: 1px solid transparent;
-  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.16);
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.26),
+    0 12px 30px rgba(0, 0, 0, 0.28);
   overflow: hidden;
   min-width: 280px;
   min-height: 200px;
@@ -694,7 +696,9 @@ function startResize(e: PointerEvent, dir: string) {
 }
 
 .floating-window.is-focused {
-  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.24);
+  box-shadow:
+    0 3px 10px rgba(0, 0, 0, 0.34),
+    0 16px 36px rgba(0, 0, 0, 0.4);
 }
 
 /* absolute, not fixed — fixed positions against the real browser viewport
@@ -711,6 +715,7 @@ function startResize(e: PointerEvent, dir: string) {
      covered by AppDock's nav drawing on top of it. */
   inset: 0;
   border: none;
+  box-shadow: none;
 }
 
 .fwin-titlebar {
