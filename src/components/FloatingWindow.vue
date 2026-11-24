@@ -650,8 +650,9 @@ function startResize(e: PointerEvent, dir: string) {
   display: flex;
   flex-direction: column;
   background: #fff;
+  background-clip: padding-box;
   border-radius: 6px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid transparent;
   box-shadow: 0 12px 32px rgba(15, 23, 42, 0.16);
   overflow: hidden;
   min-width: 280px;
@@ -676,6 +677,7 @@ function startResize(e: PointerEvent, dir: string) {
 }
 
 .floating-window.is-dark-titlebar {
+  background-color: #242424;
   border-color: #242424;
 }
 
@@ -693,11 +695,6 @@ function startResize(e: PointerEvent, dir: string) {
 
 .floating-window.is-focused {
   box-shadow: 0 16px 40px rgba(15, 23, 42, 0.24);
-  border-color: #cbd5e1;
-}
-
-.floating-window.is-dark-titlebar.is-focused {
-  border-color: #242424;
 }
 
 /* absolute, not fixed — fixed positions against the real browser viewport
