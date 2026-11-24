@@ -421,7 +421,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown, true))
      DesktopSessionHost's windowPreviewStyle). 15rem = header, label, nav. */
   .overview-carousel .overview-preview {
     aspect-ratio: auto;
-    height: calc(100dvh - 15rem);
+    height: calc(var(--app-viewport-height, 100dvh) - 15rem);
     border-radius: 18px;
   }
 

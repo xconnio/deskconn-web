@@ -13,6 +13,9 @@ import { useAccountPanelStore } from './stores/accountPanel'
 import AccountPanel from './components/AccountPanel.vue'
 import CommandPalette from './components/CommandPalette.vue'
 
+const titleBar = window.deskconnTitleBar
+const logoUrl = `${import.meta.env.BASE_URL}deskconn_logo.svg`
+
 const DesktopSessionHost = defineAsyncComponent(() => import('./components/DesktopSessionHost.vue'))
 
 const router = useRouter()
@@ -160,7 +163,13 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="app-wrapper">
+  <div class="app-wrapper" :class="{ 'electron-window': titleBar, 'electron-mac': titleBar === 'mac' }">
+    <header v-if="titleBar" class="electron-title-bar">
+      <div class="electron-title-bar-content">
+        <img :src="logoUrl" width="18" height="18" alt="" />
+        <span>DeskConn</span>
+      </div>
+    </header>
 
     <!-- Main content -->
     <main class="main-content" :class="{ 'is-desktop': hasDarkBackground, 'is-sliding': leavingRealm }">
@@ -197,6 +206,8 @@ onUnmounted(() => {
 
 <style>
 .app-wrapper {
+  --title-bar-height: 0px;
+  --app-viewport-height: calc(100dvh - var(--title-bar-height));
   display: flex;
   min-height: 100vh;
   /* 100vh on mobile = viewport with the browser chrome hidden, taller than
@@ -205,9 +216,43 @@ onUnmounted(() => {
   min-height: 100dvh;
 }
 
+.electron-window {
+  --title-bar-height: env(titlebar-area-height, 38px);
+  padding-top: var(--title-bar-height);
+}
+
+.electron-mac {
+  --title-bar-height: 38px;
+  --title-bar-left: 80px;
+}
+
+.electron-title-bar {
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 10000;
+  height: var(--title-bar-height);
+  background: #141416;
+  box-shadow: inset 0 -1px rgba(255, 255, 255, 0.08);
+  color: #e2e8f0;
+  user-select: none;
+}
+
+.electron-title-bar-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 100%;
+  margin-left: env(titlebar-area-x, var(--title-bar-left, 0px));
+  width: env(titlebar-area-width, auto);
+  padding-inline: 12px;
+  font-size: 13px;
+  font-weight: 700;
+  -webkit-app-region: drag;
+}
+
 .global-account-btn {
   position: fixed;
-  top: 1rem;
+  top: calc(var(--title-bar-height) + 1rem);
   right: 1rem;
   z-index: 1040;
   display: inline-flex;
@@ -267,7 +312,7 @@ onUnmounted(() => {
    keeps it from covering the page's own content. */
 #overview-dock {
   position: fixed;
-  inset: 0;
+  inset: var(--title-bar-height) 0 0;
   z-index: 1000;
   pointer-events: none;
 }
@@ -292,7 +337,7 @@ onUnmounted(() => {
 
 @media (max-width: 767px) {
   .global-account-btn {
-    top: 0.6rem;
+    top: calc(var(--title-bar-height) + 0.6rem);
     right: 0.6rem;
     width: 40px;
     height: 40px;

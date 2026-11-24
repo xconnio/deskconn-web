@@ -46,7 +46,7 @@ function onOpenFiles(path: string) {
 @media (min-width: 768px) {
   .indexed-files-page {
     padding: 0 1.75rem 1.5rem;
-    min-height: 100dvh;
+    min-height: var(--app-viewport-height, 100dvh);
     box-sizing: border-box;
   }
 }
