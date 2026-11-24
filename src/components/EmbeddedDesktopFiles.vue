@@ -9,7 +9,7 @@ import { useSettingsStore } from '@/stores/settings'
 import { useCapabilitiesStore } from '@/stores/capabilities'
 import { useEntryNavigation } from '@/composables/useEntryNavigation'
 import EmbeddedIndexedFiles from '@/components/EmbeddedIndexedFiles.vue'
-import { floatingWindowActionsKey, floatingWindowMobileKey, floatingWindowToolbarKey } from '@/composables/floatingWindowToolbar'
+import { floatingWindowActionsKey, floatingWindowMenuKey, floatingWindowMobileKey, floatingWindowToolbarKey } from '@/composables/floatingWindowToolbar'
 import type { FileBrowseResult, FileEntry } from '@/types'
 import { parseFileEntry, createFileBrowser } from '@/utils/fileBrowse'
 import { encryptedCall } from '@/utils/encryptedCall'
@@ -110,6 +110,9 @@ const toolbarTarget = computed(() => toolbarHostRef?.value ?? null)
 // leaving the toolbar row to history navigation and the path.
 const actionsHostRef = inject(floatingWindowActionsKey)
 const windowMobile = inject(floatingWindowMobileKey, null)
+// Inside a window, settings live in the titlebar's burger menu instead of the gear button.
+const menuHostRef = inject(floatingWindowMenuKey, null)
+const menuTarget = computed(() => menuHostRef?.value ?? null)
 const appBarTarget = computed(() => (windowMobile?.value ? actionsHostRef?.value ?? null : null))
 
 const session = shallowRef<Session | null>(null)
@@ -1307,6 +1310,12 @@ onUnmounted(() => {
       </button>
     </nav>
     <div class="explorer-shell" ref="explorerShellRef" @scroll="handleScroll">
+      <Teleport v-if="menuTarget" :to="menuTarget">
+        <button class="dropdown-item" @click="showHiddenFiles = !showHiddenFiles">
+          <i class="bi" :class="showHiddenFiles ? 'bi-eye-slash' : 'bi-eye'"></i>
+          {{ showHiddenFiles ? 'Hide hidden files' : 'Show hidden files' }}
+        </button>
+      </Teleport>
       <section class="toolbar-card" :class="{ 'toolbar-card--embedded': !!toolbarTarget }">
       <Teleport :to="toolbarTarget ?? 'body'" :disabled="!toolbarTarget">
         <div class="path-toolbar" :class="{ 'path-toolbar--embedded': !!toolbarTarget, 'path-toolbar--mobile': !!appBarTarget }">
@@ -1353,6 +1362,7 @@ onUnmounted(() => {
             <i class="bi bi-cloud-upload"></i>
           </button>
           <button
+            v-if="!menuTarget"
             ref="settingsBtnRef"
             class="tool-btn"
             :class="{ 'tool-btn--active': settingsMenuVisible }"
