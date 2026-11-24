@@ -246,7 +246,7 @@ watch([() => current.value?.id, () => selected.value?.path], ([initialAgent, ini
     </template>
   </div>
   </div>
-  <!-- Outside .cp-container: its size containment would trap the fixed backdrop in the window. -->
+  <!-- Outside .cp-container so the backdrop covers the whole window, not just the container. -->
   <GitFolderPicker
     v-if="picker"
     :session="picker.session"

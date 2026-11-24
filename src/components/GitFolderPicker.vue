@@ -332,7 +332,8 @@ onMounted(() => load(props.initialPath ?? ''))
 
 <style scoped>
 .picker-backdrop {
-  position: fixed;
+  /* Absolute, not fixed: scoped to the FloatingWindow it renders in, like ConfirmDialog. */
+  position: absolute;
   inset: 0;
   z-index: 3000;
   display: flex;
@@ -345,9 +346,9 @@ onMounted(() => load(props.initialPath ?? ''))
   display: flex;
   flex-direction: column;
   width: 520px;
-  max-width: 92vw;
+  max-width: 92%;
   height: 480px;
-  max-height: 82vh;
+  max-height: 90%;
   background: #fff;
   border-radius: 12px;
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
