@@ -3,6 +3,8 @@
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- sandboxed preloads can't be ES modules
 const { contextBridge, ipcRenderer } = require('electron')
 
+contextBridge.exposeInMainWorld('deskconnTitleBar', process.platform === 'darwin' ? 'mac' : 'overlay')
+
 contextBridge.exposeInMainWorld('deskconnPorts', {
   listen: (localPort) => ipcRenderer.invoke('ports:listen', localPort),
   close: (id) => ipcRenderer.invoke('ports:close', id),
