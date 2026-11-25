@@ -30,6 +30,8 @@ const emit = defineEmits<{
   close: []
   // Saved with the window.
   'update-props': [props: { initialTabs: number; initialActiveTab: number }]
+  // The active tab's shell title (e.g. "user@host: ~"), '' until its shell sets one.
+  title: [title: string]
 }>()
 
 const sessionCacheStore = useSessionCacheStore()
@@ -53,6 +55,7 @@ interface TabState {
   session: Session | null
   conn: ShellHandle | null
   closed: boolean
+  shellTitle: string
 }
 
 const tabs = shallowRef<TabState[]>([])
@@ -62,6 +65,9 @@ const termElMap = new Map<number, HTMLDivElement>()
 const stripTabs = computed(() => tabs.value.map((t) => ({ id: t.id, label: t.label })))
 
 const activeTab = computed(() => tabs.value.find(t => t.id === activeTabId.value) ?? null)
+// Reads tabs.value itself: a title change re-assigns it but keeps the same tab object,
+// which activeTab's computed wouldn't pass on.
+watch(() => tabs.value.find(t => t.id === activeTabId.value)?.shellTitle ?? '', (title) => emit('title', title))
 
 let keybarResizeObserver: ResizeObserver | null = null
 let panelResizeObserver: ResizeObserver | null = null
@@ -107,6 +113,7 @@ function createTabState(): TabState {
     session: null,
     conn: null,
     closed: false,
+    shellTitle: '',
   }
 }
 
@@ -258,6 +265,7 @@ async function initTab(tab: TabState) {
   tab.term.onTitleChange((title) => {
     if (tab.closed || !title) return
     tab.label = title
+    tab.shellTitle = title
     tabs.value = [...tabs.value]
   })
 
