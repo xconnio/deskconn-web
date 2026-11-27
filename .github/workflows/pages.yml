@@ -55,7 +55,12 @@ jobs:
         uses: actions/upload-pages-artifact@v3
         with:
           path: dist
+          # Per-attempt name: a re-run keeps attempt 1's artifact on the run,
+          # and deploy-pages refuses when two share a name.
+          name: github-pages-${{ github.run_attempt }}
 
       - name: Deploy
         id: deploy
         uses: actions/deploy-pages@v4
+        with:
+          artifact_name: github-pages-${{ github.run_attempt }}
