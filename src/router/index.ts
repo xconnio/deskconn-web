@@ -41,6 +41,12 @@ const router = createRouter({
       meta: { requiresGuest: true },
     },
     {
+      path: '/cli/authorize',
+      name: 'cli-authorize',
+      component: () => import('../views/CliAuthorizeView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/machine/:realm',
       name: 'desktop-launcher',
       component: () => import('../views/LauncherView.vue'),
@@ -83,6 +89,30 @@ export function requestMachinesPicker() {
 // back into whatever machine is currently the last-used one.
 let hasResolvedHome = false
 
+// Where a logged-out user was headed (e.g. a CLI login approval link), to come back to
+// once they log in. Kept 10 minutes, as long as a CLI login lasts, so a leftover one
+// doesn't send a later login to an old page.
+const RETURN_PATH_KEY = 'deskconn-return-path'
+const RETURN_PATH_TTL_MS = 10 * 60 * 1000
+
+export function rememberReturnPath(path: string) {
+  sessionStorage.setItem(RETURN_PATH_KEY, JSON.stringify({ path, at: Date.now() }))
+}
+
+export function takeReturnPath(): string {
+  const saved = sessionStorage.getItem(RETURN_PATH_KEY)
+  sessionStorage.removeItem(RETURN_PATH_KEY)
+  let path = ''
+  try {
+    const { path: p, at } = JSON.parse(saved ?? '{}')
+    if (typeof p === 'string' && Date.now() - at < RETURN_PATH_TTL_MS) path = p
+  } catch {
+    // Not ours, or from before it carried a time: ignore it.
+  }
+  // Only paths inside the app, never an absolute or protocol-relative URL.
+  return path.startsWith('/') && !path.startsWith('//') ? path : '/'
+}
+
 // The desktop MachinesOverview was navigated away from, if any — lets it show
 // a close/back-to-desktop control instead of always being a dead-end page.
 export const machinesOverviewReturnRealm = ref<string | null>(null)
@@ -96,6 +126,7 @@ router.beforeEach((to, from, next) => {
   }
 
   if (to.meta.requiresAuth && !authStore.isAuthenticated) {
+    rememberReturnPath(to.fullPath)
     next('/login')
   } else if (to.meta.requiresGuest && authStore.isAuthenticated) {
     next('/')

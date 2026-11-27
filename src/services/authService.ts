@@ -84,6 +84,18 @@ export const authService = {
     return session.call('com.deskconn.account.principal.delete', [publicKey])
   },
 
+  async getCliLogin(session: WampSession, userCode: string) {
+    return session.call('com.deskconn.account.login.cli.get', [userCode])
+  },
+
+  async approveCliLogin(session: WampSession, userCode: string) {
+    return session.call('com.deskconn.account.login.cli.approve', [userCode])
+  },
+
+  async denyCliLogin(session: WampSession, userCode: string) {
+    return session.call('com.deskconn.account.login.cli.deny', [userCode])
+  },
+
   async rotatePrincipal(session: WampSession, oldPublicKey: string, newPublicKey: string) {
     return session.call('com.deskconn.account.principal.rotate', [oldPublicKey, newPublicKey])
   },
