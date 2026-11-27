@@ -2,7 +2,7 @@
 import { onMounted, onUnmounted, computed, ref, watch, nextTick, defineAsyncComponent } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
 
-import { machinesOverviewReturnRealm } from './router/index'
+import { machinesOverviewReturnRealm, rememberReturnPath } from './router/index'
 import { machineSlideDir, MACHINE_SLIDE_MS } from './router/navigation'
 import { STANDALONE_REALM } from './config'
 import { useAuthStore } from './stores/auth'
@@ -146,6 +146,7 @@ onMounted(async () => {
       // cleared it) — a route that requires auth was only reachable because
       // `user` was optimistically loaded from stale localStorage at store
       // creation, before this real check ran.
+      rememberReturnPath(router.currentRoute.value.fullPath)
       router.push('/login')
     }
   } catch (err) {
