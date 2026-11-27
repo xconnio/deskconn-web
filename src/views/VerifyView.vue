@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { takeReturnPath } from '../router'
 import VOtpInput from 'vue3-otp-input'
 import { useAuthStore } from '../stores/auth'
 import { errorMessage } from '../utils/errorMessage'
@@ -99,10 +100,10 @@ const handleOnComplete = async (value: string) => {
   try {
     if (isLoginFlow.value) {
       await authStore.verifyLoginOtp(value)
-      router.push('/')
+      router.push(takeReturnPath())
     } else {
       await authStore.verifyAccount(value)
-      router.push('/')
+      router.push(takeReturnPath())
     }
   } catch (e: unknown) {
     console.error(e)
